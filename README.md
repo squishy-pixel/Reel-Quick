@@ -89,27 +89,33 @@ and `19:32:05;12` all parse.
 
 ## Running the engine (Windows, Mac, Linux)
 
-Needs Python 3.11+ and an ffmpeg build with `prores_ks`, `zscale` and
-`tonemap` (the gyan.dev "full" build on Windows has them all plus NVENC).
+Needs an ffmpeg build with `prores_ks`, `zscale` and `tonemap` (the gyan.dev
+"full" build on Windows has them all plus NVENC). Python is handled by uv, so
+nothing else needs installing first.
 
 ```powershell
-# one time
-winget install Gyan.FFmpeg          # or put ffmpeg.exe and ffprobe.exe in engine\bin\
-pip install uv
-cd engine
-uv venv
-uv pip install -e ".[dev]"
+# one time, in PowerShell
+winget install Gyan.FFmpeg
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+# close and reopen PowerShell so ffmpeg and uv are on PATH
+git clone -b claude/tnf-clip-extraction-tool-d6mcix https://github.com/squishy-pixel/Reel-Quick
+cd Reel-Quick\engine
+uv sync --extra dev
 
-# every time
-.venv\Scripts\activate
-reelquick caps                          # what can this machine do (NVENC, tonemap...)
-reelquick probe D:\Records\game.mxf
-reelquick markers D:\Records\game.mxf log.csv
-reelquick filmstrip D:\Records\game.mxf D:\Work\game\strip --interval 2 --workers 8
-reelquick proxy D:\Records\game.mxf D:\Work\game\proxy.mp4
-reelquick cut D:\Records\game.mxf D:\Work\game\clips --in 19:32:05 --out 19:32:14 --format prores --format mp4 --name 261022_WK08_NEvCHI_01_LowerThird_Herbie-pick
-reelquick still D:\Records\game.mxf D:\Work\game\clips\stills --at 19:32:09 --name 261022_WK08_NEvCHI_booth-wide
+# every time, from Reel-Quick\engine
+uv run reelquick caps                          # what can this machine do (NVENC, tonemap...)
+uv run reelquick probe D:\Records\game.mxf
+uv run reelquick markers D:\Records\game.mxf log.csv
+uv run reelquick filmstrip D:\Records\game.mxf D:\Work\game\strip --interval 2 --workers 8
+uv run reelquick proxy D:\Records\game.mxf D:\Work\game\proxy.mp4
+uv run reelquick cut D:\Records\game.mxf D:\Work\game\clips --in 19:32:05 --out 19:32:14 --format prores --format mp4 --name 261022_WK08_NEvCHI_01_LowerThird_Herbie-pick
+uv run reelquick still D:\Records\game.mxf D:\Work\game\clips\stills --at 19:32:09 --name 261022_WK08_NEvCHI_booth-wide
 ```
+
+`uv sync` downloads a private Python and the dependencies into `engine\.venv`
+on first run. `uv run` uses that environment without activating anything.
+If ffmpeg is not on PATH, put `ffmpeg.exe` and `ffprobe.exe` in `engine\bin\`
+or set `REELQUICK_FFMPEG_DIR` to the folder that holds them.
 
 Output layout for one clip rendered as ProRes plus MP4:
 
@@ -119,7 +125,7 @@ clips\261022_WK08_NEvCHI_01_LowerThird_Herbie-pick.mp4
 clips\stills\261022_WK08_NEvCHI_01_LowerThird_Herbie-pick.png
 ```
 
-Run the tests with `python -m pytest` inside `engine/`. They generate a short
+Run the tests with `uv run pytest` inside `engine/`. They generate a short
 synthetic MXF in the real feed's format, so no media is needed.
 
 ## First session on the real machine
