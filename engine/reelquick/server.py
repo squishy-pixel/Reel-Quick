@@ -22,13 +22,14 @@ from .filmstrip import build_filmstrip, thumbnail_at
 from .jobs import JobManager
 from .markers import Marker, import_log_csv
 from .naming import GameInfo, build_name
+from .probe import probe
 from .project import ClipEntry, Settings, StillEntry
 from .proxy import ProxySettings, build_proxy
-from .render import render_clip
+from .render import OutputFormat, render_clip
 from .stills import grab_still
 from .timecode import frames_to_tc
 from .vocab import load_vocab, save_vocab
-from .workspace import Session, default_work_root
+from .workspace import Session, default_work_root, recent_projects
 
 UI_DIR = Path(__file__).resolve().parent / "ui"
 
@@ -120,6 +121,7 @@ class RenderBody(BaseModel):
     clip_ids: list[str] | None = None
     overwrite: bool = False
     stills: bool = True
+    from_proxy: bool = False        # cut from the proxy when the original is not available
 
 
 # ---- helpers ------------------------------------------------------------------
@@ -230,6 +232,10 @@ def create_app(session: Session | None = None) -> FastAPI:
     @app.put("/api/vocab")
     def put_vocab(body: dict):
         return save_vocab(session.work_root, body)
+
+    @app.get("/api/recent")
+    def recent():
+        return recent_projects(session.work_root)
 
     @app.get("/api/fs")
     def fs(path: str | None = None):
@@ -378,17 +384,23 @@ def create_app(session: Session | None = None) -> FastAPI:
         start = max(0, min(info.nb_frames - 1, body.at_frame))
         from .timecode import frames_to_seconds
         from .ffmpeg import fmt_seconds, run_ffmpeg
+        read_info, _origin = w.media_for_reading()
+        if _origin == "proxy":
+            raise HTTPException(409, "track preview needs the original recording; the proxy only carries the chosen pair")
         files = []
         for n, a in enumerate(info.audio, start=1):
             out = out_dir / f"track{n:02d}_{start}.mp3"
-            if not out.exists():
+            wave = out_dir / f"track{n:02d}_{start}.png"
+            if not out.exists() or not wave.exists():
                 try:
                     run_ffmpeg(["-ss", fmt_seconds(frames_to_seconds(start, info.rate)), "-i", info.path,
                                 "-t", fmt_seconds(body.seconds), "-map", f"0:{a.stream_index}", "-vn",
-                                "-c:a", "libmp3lame", "-b:a", "128k", str(out)])
+                                "-c:a", "libmp3lame", "-b:a", "128k", str(out),
+                                "-filter_complex", f"[0:{a.stream_index}]showwavespic=s=720x48:colors=#FEB404:scale=sqrt[w]",
+                                "-map", "[w]", "-frames:v", "1", str(wave)])
                 except FfmpegError as e:
                     raise HTTPException(500, f"track {n}: {e}")
-            files.append({"track": n, "url": f"/cache/audio/{out.name}", "channels": a.channels})
+            files.append({"track": n, "url": f"/cache/audio/{out.name}", "wave": f"/cache/audio/{wave.name}", "channels": a.channels})
         return {"tracks": files, "seconds": body.seconds}
 
     @app.get("/cache/audio/{name}")
@@ -397,7 +409,7 @@ def create_app(session: Session | None = None) -> FastAPI:
         p = w.root / ".cache" / "audio" / Path(name).name
         if not p.is_file():
             raise HTTPException(404)
-        return FileResponse(p, media_type="audio/mpeg")
+        return FileResponse(p, media_type="image/png" if p.suffix == ".png" else "audio/mpeg")
 
     # ---- markers ---------------------------------------------------------
 
@@ -482,7 +494,10 @@ def create_app(session: Session | None = None) -> FastAPI:
         p = w.frames_dir / f"{frame:08d}_{width}.jpg"
         if not p.exists():
             try:
-                thumbnail_at(info, frame, p, width)
+                read_info, _origin = w.media_for_reading()     # falls back to the proxy when the source is away
+                thumbnail_at(read_info, frame, p, width)
+            except FileNotFoundError as e:
+                raise HTTPException(409, str(e))
             except FfmpegError as e:
                 raise HTTPException(500, str(e))
         return FileResponse(p, headers={"Cache-Control": "max-age=86400"})
@@ -554,6 +569,12 @@ def create_app(session: Session | None = None) -> FastAPI:
         clips = [c for c in project.clips if body.clip_ids is None or c.id in body.clip_ids]
         if not clips:
             raise HTTPException(400, "nothing to render")
+        if w.recheck_source():
+            read_info, origin = project.info, "source"
+        elif body.from_proxy and w.has_proxy():
+            read_info, origin = probe(w.proxy_path), "proxy"
+        else:
+            raise HTTPException(409, "the original recording is not available; render from the proxy or reconnect it")
         fps = float(project.info.rate.fps)
         weights = {"prores": 1.0, "mp4": 1.0, "copy": 0.08}
 
@@ -587,25 +608,42 @@ def create_app(session: Session | None = None) -> FastAPI:
                     for i, fmt in enumerate(c.formats):
                         spec = project.clip_spec(c, fmt)
                         spec.name = project.output_name(c, fmt)
+                        if origin == "proxy":
+                            spec.name += "_fromproxy"
+                            spec.audio_tracks = None                # the proxy carries one stereo track already
+                            if spec.fmt == OutputFormat.COPY:
+                                spec.fmt = OutputFormat.PRORES      # the proxy is long-GOP; copy would not be frame accurate
                         fmt_progress.__defaults__[0][0] = i
                         try:
-                            path = render_clip(project.info, spec, out_dir, on_progress=fmt_progress,
+                            path = render_clip(read_info, spec, out_dir, on_progress=fmt_progress,
                                                cancel=cancel, overwrite=body.overwrite)
                         except FileExistsError as e:
                             path = Path(str(e))
                         outputs[fmt] = str(path)
                     if body.stills:
-                        stills = project.render_clip_stills(c, out_dir, body.overwrite)
+                        if origin == "proxy":
+                            frames = [c.representative_frame] + [f for f in c.extra_stills if f != c.representative_frame]
+                            stills = []
+                            for k, f in enumerate(frames):
+                                nm = (c.name if k == 0 else f"{c.name}_{k + 1:02d}") + "_fromproxy"
+                                try:
+                                    stills.append(grab_still(read_info, f, out_dir / "stills", nm, project.settings.still_format,
+                                                             False, overwrite=body.overwrite))
+                                except FileExistsError as e:
+                                    stills.append(Path(str(e)))
+                        else:
+                            stills = project.render_clip_stills(c, out_dir, body.overwrite)
                         outputs["still"] = str(stills[0])
                         if len(stills) > 1:
                             outputs["extra_stills"] = [str(x) for x in stills[1:]]
+                    outputs["origin"] = origin
                     with session.lock:
                         c.rendered.update(outputs)
                         w.save()
                     row["outputs"] = outputs
                     row["status"] = "done"
                     row["progress"] = 1.0
-                except FfmpegError as e:
+                except (FfmpegError, ValueError, OSError) as e:
                     if cancel.is_set():
                         row["status"] = "cancelled"
                         break
@@ -615,7 +653,7 @@ def create_app(session: Session | None = None) -> FastAPI:
                 done_work += weight
                 progress(done_work / total_work, {"clips": list(rows.values()), "current": None})
             return {"rendered": sum(1 for r in rows.values() if r["status"] == "done"), "failed": failures,
-                    "out_dir": str(out_dir)}
+                    "out_dir": str(out_dir), "origin": origin}
 
         try:
             job = jobs.start("render", f"Render {len(clips)} clip(s)", run)

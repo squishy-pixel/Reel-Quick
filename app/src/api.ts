@@ -21,7 +21,8 @@ export interface Job {
   id: string; kind: string; label: string; status: "queued" | "running" | "done" | "failed" | "cancelled";
   progress: number; detail: any; error: string | null; started: number | null; finished: number | null; elapsed: number; eta: number | null; result: any;
 }
-export interface Workspace { source: string; root: string; project_path: string; has_filmstrip: boolean; has_proxy: boolean; proxy_url: string | null; clips_dir: string }
+export interface Workspace { source: string; source_online: boolean; root: string; project_path: string; has_filmstrip: boolean; has_proxy: boolean; proxy_url: string | null; clips_dir: string }
+export interface Recent { root: string; project_path: string; source: string; source_online: boolean; game: Game; clips: number; has_proxy: boolean; has_filmstrip: boolean; modified: number }
 export type Vocab = { shells: string[]; cameras: string[]; engines: string[]; segments: string[] };
 export interface AppState {
   version: string; workspace: Workspace | null; project: Project | null; jobs: Job[]; work_root: string; vocab: Vocab;
@@ -59,10 +60,11 @@ export const api = {
   jobs: () => call<Job[]>("GET", "/api/jobs"),
   startFilmstrip: (b: { interval?: number; width?: number; force?: boolean }) => call<Job>("POST", "/api/jobs/filmstrip", b),
   startProxy: (b: { height?: number; bitrate?: string }) => call<Job>("POST", "/api/jobs/proxy", b),
-  startRender: (b: { clip_ids?: string[]; overwrite?: boolean }) => call<Job>("POST", "/api/jobs/render", b),
+  startRender: (b: { clip_ids?: string[]; overwrite?: boolean; from_proxy?: boolean }) => call<Job>("POST", "/api/jobs/render", b),
+  recent: () => call<Recent[]>("GET", "/api/recent"),
   cancelJob: (id: string) => call<{ ok: boolean }>("POST", `/api/jobs/${id}/cancel`),
   reveal: (path: string) => call<{ ok: boolean }>("POST", "/api/reveal", { path }),
-  audioPreview: (at_frame: number, seconds = 15) => call<{ tracks: { track: number; url: string; channels: number }[] }>("POST", "/api/audio-preview", { at_frame, seconds }),
+  audioPreview: (at_frame: number, seconds = 15) => call<{ tracks: { track: number; url: string; wave: string; channels: number }[] }>("POST", "/api/audio-preview", { at_frame, seconds }),
 };
 
 // Native dialogs when running inside the pywebview window.

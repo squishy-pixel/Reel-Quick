@@ -197,15 +197,21 @@ export function ListsDialog({ vocab, onSave, onClose }: { vocab: Vocab; onSave: 
 }
 
 
-export function AudioDialog({ tracks, tcLabel, onClose }: { tracks: { track: number; url: string; channels: number }[] | null; tcLabel: string; onClose: () => void }) {
+export function AudioDialog({ tracks, tcLabel, onClose }: { tracks: { track: number; url: string; wave?: string; channels: number }[] | null; tcLabel: string; onClose: () => void }) {
   return (
     <div className="modal-bg" onClick={onClose}>
-      <div className="modal" style={{ width: 520, gridTemplateRows: "auto 1fr auto" }} onClick={(e) => e.stopPropagation()}>
-        <header><h2>Audio tracks at {tcLabel}</h2></header>
+      <div className="modal" style={{ width: 760, gridTemplateRows: "auto 1fr auto" }} onClick={(e) => e.stopPropagation()}>
+        <header><h2>Audio tracks at {tcLabel}</h2><span className="dim" style={{ fontSize: 11 }}>Speech shows as a spiky, uneven waveform; music and crowd as a dense block.</span></header>
         {tracks ? (
           <div className="audiolist">
             {tracks.map((t) => (
-              <div key={t.track} className="t"><span className="num">track {t.track} <span className="dim">{t.channels}ch</span></span><audio controls preload="none" src={t.url} /></div>
+              <div key={t.track} className="t">
+                <span className="num">track {t.track} <span className="dim">{t.channels}ch</span></span>
+                <div>
+                  {t.wave && <img src={t.wave} alt="" style={{ width: "100%", height: 32, display: "block", background: "#101214", objectFit: "fill" }} />}
+                  <audio controls preload="none" src={t.url} />
+                </div>
+              </div>
             ))}
           </div>
         ) : <div className="dim" style={{ padding: 14 }}>Extracting a few seconds of each track…</div>}

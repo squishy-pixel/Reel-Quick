@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, native, type AppState, type Clip, type FilmstripIndex } from "./api";
+import { api, native, type AppState, type Clip, type FilmstripIndex, type Recent } from "./api";
 import { Filmstrip, THUMB_MAX, THUMB_MIN } from "./components/Filmstrip";
 import { Tc } from "./components/Tc";
 import { Player, type PlayerHandle } from "./components/Player";
@@ -21,6 +21,8 @@ export default function App() {
   const [exactView, setExact] = useState(false);
   const [follow, setFollow] = useState(true);
   const [pendingStill, setPendingStill] = useState<number | null>(null);
+  const [recent, setRecent] = useState<Recent[]>([]);
+  useEffect(() => { if (state && !state.project) api.recent().then(setRecent).catch(() => setRecent([])); }, [state?.project === null]); // eslint-disable-line react-hooks/exhaustive-deps
   const [thumbW, setThumbWState] = useState(() => { try { return Math.max(THUMB_MIN, Math.min(THUMB_MAX, Number(localStorage.getItem("rq.thumbW")) || 160)); } catch { return 160; } });
   const setThumbW = (w: number) => { setThumbWState(w); try { localStorage.setItem("rq.thumbW", String(w)); } catch { /* ignore */ } };
   const player = useRef<PlayerHandle>(null);
@@ -66,10 +68,22 @@ export default function App() {
   }, [renderJob]);
 
   // ---- actions ---------------------------------------------------------
+  const openPath = (p: string) => run(api.open(p), () => { setIn(null); setOut(null); setSelected(null); setFrame(0); setPendingStill(null); });
   const openFile = async () => {
     const n = native();
-    if (n) { const p = await n.pick_file(); if (p) run(api.open(p), () => { setIn(null); setOut(null); setSelected(null); setFrame(0); }); }
+    if (n) { const p = await n.pick_file(); if (p) openPath(p); }
     else setDialog({ kind: "open" });
+  };
+  const startRender = (clipIds?: string[]) => {
+    const offline = ws && !ws.source_online;
+    if (offline) {
+      if (!ws!.has_proxy) { say("The original recording is not available and there is no proxy to cut from.", true); return; }
+      if (!confirm("The original recording is not available.\nRender from the proxy instead? Outputs will be SDR at proxy quality, named with _fromproxy, so they are easy to redo from the original later.")) return;
+    }
+    const pool = clipIds ? project!.clips.filter((c) => clipIds.includes(c.id)) : project!.clips;
+    const n = pool.filter((c) => c.still_frame === null).length;
+    if (n && !confirm(`${n} clip${n > 1 ? "s have" : " has"} no still chosen; the middle frame will be used. Render anyway?`)) return;
+    run(api.startRender({ clip_ids: clipIds, from_proxy: !!offline }));
   };
   const addClip = useCallback(() => {
     if (!project) return;
@@ -170,7 +184,8 @@ export default function App() {
         <div className="brand"><span className="chev">&gt;</span>Reel Quick<span className="tag">Girraphic</span></div>
         {project ? (
           <>
-            <div className="file"><b>{ws!.source.split(/[\\/]/).pop()}</b> · {info!.width}x{info!.height} {info!.fps.toFixed(2)}p {info!.is_hlg ? "HLG" : info!.color_transfer} · {info!.start_timecode} · {(info!.duration / 3600).toFixed(2)} h</div>
+            <div className="file"><b>{ws!.source.split(/[\\/]/).pop()}</b> · {info!.width}x{info!.height} {info!.fps.toFixed(2)}p {info!.is_hlg ? "HLG" : info!.color_transfer} · {info!.start_timecode} · {(info!.duration / 3600).toFixed(2)} h
+              {!ws!.source_online && <span className="offline" title="The original recording is not reachable. Marking works from the filmstrip and proxy; rendering can use the proxy.">original offline</span>}</div>
             <GameFields key={ws!.source} game={project.game} onChange={(g) => run(api.game(g))} />
           </>
         ) : <div className="file dim">No file open</div>}
@@ -216,7 +231,21 @@ export default function App() {
             <h1><span>&gt;</span> Reel Quick</h1>
             <div>Open a game recording to scan it, mark your segments, and render them.</div>
             <button className="btn primary" onClick={openFile}>Open recording…</button>
-            <div className="dim" style={{ fontSize: 11 }}>Working files go in {state.work_root}</div>
+            {recent.length > 0 && (
+              <div className="recent">
+                <h2>Recent games</h2>
+                {recent.map((r) => (
+                  <div key={r.root} className="recentrow" onClick={() => openPath(r.root)}>
+                    <span className="g">{[r.game?.date, [r.game?.week, r.game?.away && r.game?.home ? `${r.game.away}v${r.game.home}` : ""].filter(Boolean).join("-")].filter(Boolean).join(" · ") || r.root.split(/[\\/]/).pop()}</span>
+                    <span className="dim">{r.clips} clip{r.clips === 1 ? "" : "s"}</span>
+                    <span className={r.has_filmstrip ? "ok" : "dim"}>strip</span>
+                    <span className={r.has_proxy ? "ok" : "dim"}>proxy</span>
+                    <span className={r.source_online ? "ok" : "offline"}>{r.source_online ? "original online" : "original offline"}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="dim" style={{ fontSize: 11 }}>Working files go in {state.work_root}. A game can be opened from there even when its recording is not attached.</div>
           </div>
         )}
       </div>
@@ -238,8 +267,8 @@ export default function App() {
             <div>
               {selectedClip && <ClipEditor clip={selectedClip} info={info!} frame={frame} vocab={state.vocab} onPatch={(p) => patchClip(selectedClip.id, p)} onSeek={seek} onSetStill={setStill} />}
               <RenderPanel job={renderJob} clipCount={project.clips.length} missingStills={project.clips.filter((c) => c.still_frame === null).length} selectedId={selected} outDir={ws!.clips_dir}
-                onRender={() => { const n = project.clips.filter((c) => c.still_frame === null).length; if (n && !confirm(`${n} clip${n > 1 ? "s have" : " has"} no still chosen; the middle frame will be used. Render anyway?`)) return; run(api.startRender({})); }}
-                onRenderSelected={() => selected && run(api.startRender({ clip_ids: [selected] }))}
+                onRender={() => startRender()}
+                onRenderSelected={() => selected && startRender([selected])}
                 onCancel={() => renderJob && run(api.cancelJob(renderJob.id))}
                 onReveal={() => run(api.reveal(ws!.clips_dir))}
                 onPickOut={async () => { const n = native(); if (n) { const p = await n.pick_folder(ws!.clips_dir); if (p) run(api.settings({ output_dir: p })); } else setDialog({ kind: "outdir" }); }} />

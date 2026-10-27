@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import threading
@@ -39,6 +40,7 @@ class Workspace:
     source: Path
     root: Path                   # <work root>/<source stem>
     project: Project
+    source_online: bool = True   # False when opened from the work folder with the original unavailable
 
     @property
     def project_path(self) -> Path:
@@ -78,9 +80,23 @@ class Workspace:
     def save(self) -> None:
         self.project.save(self.project_path)
 
+    def recheck_source(self) -> bool:
+        self.source_online = self.source.is_file()
+        return self.source_online
+
+    def media_for_reading(self):
+        """MediaInfo to cut from: the source when it is there, else the proxy."""
+        if self.recheck_source():
+            return self.project.info, "source"
+        if self.has_proxy():
+            info = probe(self.proxy_path)
+            return info, "proxy"
+        raise FileNotFoundError("neither the original recording nor a proxy is available")
+
     def status(self) -> dict:
         return {
             "source": str(self.source),
+            "source_online": self.recheck_source(),
             "root": str(self.root),
             "project_path": str(self.project_path),
             "has_filmstrip": self.has_filmstrip(),
@@ -90,11 +106,25 @@ class Workspace:
         }
 
     @classmethod
-    def open(cls, source: str | Path, work_root: Path | None = None) -> "Workspace":
-        source = Path(source)
+    def open(cls, path: str | Path, work_root: Path | None = None) -> "Workspace":
+        """Open a recording, or a work folder / project file when the recording itself is not at hand."""
+        path = Path(path)
+        work_root = work_root or default_work_root()
+        if path.is_dir() and (path / PROJECT_FILE).exists():
+            path = path / PROJECT_FILE
+        if path.name == PROJECT_FILE and path.is_file():
+            project = Project.load(path)
+            source = Path(project.source)
+            return cls(source=source, root=path.parent, project=project, source_online=source.is_file())
+        source = path
         if not source.is_file():
+            # Maybe the recording moved but its work folder is still here.
+            root = work_root / source.stem
+            if (root / PROJECT_FILE).exists():
+                project = Project.load(root / PROJECT_FILE)
+                return cls(source=source, root=root, project=project, source_online=False)
             raise FileNotFoundError(str(source))
-        root = (work_root or default_work_root()) / source.stem
+        root = work_root / source.stem
         root.mkdir(parents=True, exist_ok=True)
         project_path = root / PROJECT_FILE
         if project_path.exists():
@@ -102,11 +132,38 @@ class Workspace:
             if Path(project.source) != source:
                 project.source = str(source)
                 project.info = probe(source)
+                project.save(project_path)
         else:
             info = probe(source)
             project = Project(source=str(source), info=info, game=guess_game(source))
             project.save(project_path)
         return cls(source=source, root=root, project=project)
+
+
+def recent_projects(work_root: Path) -> list[dict]:
+    """Every game that has a work folder, newest first, with what it has on disk."""
+    out = []
+    if not work_root.is_dir():
+        return out
+    for pf in work_root.glob(f"*/{PROJECT_FILE}"):
+        try:
+            d = json.loads(pf.read_text(encoding="utf-8"))
+            src = Path(d.get("source", ""))
+            out.append({
+                "root": str(pf.parent),
+                "project_path": str(pf),
+                "source": str(src),
+                "source_online": src.is_file(),
+                "game": d.get("game", {}),
+                "clips": len(d.get("clips", [])),
+                "has_proxy": (pf.parent / "proxy.mp4").exists(),
+                "has_filmstrip": (pf.parent / "strip" / INDEX_NAME).exists(),
+                "modified": pf.stat().st_mtime,
+            })
+        except (OSError, ValueError):
+            continue
+    out.sort(key=lambda r: r["modified"], reverse=True)
+    return out
 
 
 class Session:

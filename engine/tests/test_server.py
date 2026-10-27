@@ -141,5 +141,37 @@ def test_extra_stills_and_audio_preview(client):
     r = client.post("/api/audio-preview", json={"at_frame": 30, "seconds": 1})
     assert r.status_code == 200 and len(r.json()["tracks"]) == 4
     assert client.get(r.json()["tracks"][0]["url"]).status_code == 200
+    assert client.get(r.json()["tracks"][0]["wave"]).headers["content-type"] == "image/png"
     state = client.get("/api/state").json()
     assert "/.cache/" not in state["workspace"]["clips_dir"]
+
+
+def test_offline_source_opens_from_work_folder_and_renders_from_proxy(tmp_path, synthetic_mxf):
+    import shutil
+    work = tmp_path / "work"
+    copy = tmp_path / "media" / synthetic_mxf.name
+    copy.parent.mkdir()
+    shutil.copy(synthetic_mxf, copy)
+    with TestClient(create_app(Session(work_root=work))) as c:
+        assert c.post("/api/open", json={"path": str(copy)}).status_code == 200
+        job = c.post("/api/jobs/proxy", json={"height": 360}).json()
+        assert _wait(c, job["id"])["status"] == "done"
+        c.post("/api/clips", json={"in_frame": 60, "out_frame": 90, "desc": "offline", "formats": ["copy", "mp4"]})
+        c.patch(f"/api/clips/{c.get('/api/state').json()['project']['clips'][0]['id']}", json={"still_frame": 70})
+    copy.unlink()                                   # the drive went home
+    with TestClient(create_app(Session(work_root=work))) as c:
+        recent = c.get("/api/recent").json()
+        assert len(recent) == 1 and recent[0]["source_online"] is False and recent[0]["has_proxy"] is True
+        r = c.post("/api/open", json={"path": recent[0]["root"]})
+        assert r.status_code == 200 and r.json()["workspace"]["source_online"] is False
+        assert c.get("/api/frame/10?width=160").status_code == 200          # served from the proxy
+        assert c.post("/api/jobs/render", json={}).status_code == 409        # refuses silently falling back
+        job = c.post("/api/jobs/render", json={"from_proxy": True}).json()
+        done = _wait(c, job["id"])
+        assert done["status"] == "done" and done["result"]["origin"] == "proxy", done
+        outs = done["detail"]["clips"][0]["outputs"]
+        assert outs["copy"].endswith("_fromproxy.mov") and outs["mp4"].endswith("_fromproxy.mp4") and outs["still"].endswith("_fromproxy.png")
+        # the 'copy' request became ProRes because the proxy is long-GOP
+        from reelquick.probe import probe as _probe
+        assert _probe(outs["copy"]).codec == "prores" and _probe(outs["copy"]).color_transfer == "bt709"
+        assert c.post("/api/audio-preview", json={"at_frame": 1, "seconds": 1}).status_code == 409
