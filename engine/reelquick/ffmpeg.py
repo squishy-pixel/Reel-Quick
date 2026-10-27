@@ -111,34 +111,40 @@ def run_ffmpeg(
     t = threading.Thread(target=_drain_stderr, daemon=True)
     t.start()
 
-    if on_progress is not None:
-        assert proc.stdout is not None
-        current: dict = {}
-        for line in proc.stdout:
-            if cancel is not None and cancel.is_set():
-                proc.terminate()
-                break
-            m = _PROGRESS_LINE.match(line.strip())
-            if not m:
-                continue
-            key, value = m.groups()
-            current[key] = value
-            if key == "progress":
-                out_us = current.get("out_time_us") or current.get("out_time_ms")
-                frac = 0.0
-                if duration and out_us and out_us.lstrip("-").isdigit():
-                    frac = max(0.0, min(1.0, int(out_us) / 1_000_000 / duration))
-                if value == "end":
-                    frac = 1.0
-                on_progress(frac, dict(current))
-                current = {}
-    else:
-        while proc.poll() is None:
-            if cancel is not None and cancel.wait(0.25):
-                proc.terminate()
-                break
-
-    proc.wait()
+    try:
+        if on_progress is not None:
+            assert proc.stdout is not None
+            current: dict = {}
+            for line in proc.stdout:
+                if cancel is not None and cancel.is_set():
+                    proc.terminate()
+                    break
+                m = _PROGRESS_LINE.match(line.strip())
+                if not m:
+                    continue
+                key, value = m.groups()
+                current[key] = value
+                if key == "progress":
+                    out_us = current.get("out_time_us") or current.get("out_time_ms")
+                    frac = 0.0
+                    if duration and out_us and out_us.lstrip("-").isdigit():
+                        frac = max(0.0, min(1.0, int(out_us) / 1_000_000 / duration))
+                    if value == "end":
+                        frac = 1.0
+                    on_progress(frac, dict(current))
+                    current = {}
+        else:
+            while proc.poll() is None:
+                if cancel is not None and cancel.wait(0.25):
+                    proc.terminate()
+                    break
+        proc.wait()
+    finally:
+        # Ctrl+C, an exception in a progress callback, or anything else that
+        # leaves this frame must not leave an ffmpeg running at full tilt.
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
     t.join(timeout=5)
     stderr = "".join(stderr_chunks)
     if cancel is not None and cancel.is_set():

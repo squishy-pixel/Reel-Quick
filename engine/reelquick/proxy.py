@@ -153,6 +153,7 @@ def _build_segmented(info: MediaInfo, out_path: Path, settings: ProxySettings, h
                      on_progress: ProgressFn | None, cancel: threading.Event | None) -> Path:
     keyint = max(1, round(settings.keyint_seconds * float(info.rate.fps)))
     spans = _segments(info.nb_frames, settings.jobs, keyint)
+    cancel = cancel or threading.Event()        # so Ctrl+C can stop every worker
     total = info.nb_frames
     done = [0.0] * len(spans)
     lock = threading.Lock()
@@ -183,8 +184,14 @@ def _build_segmented(info: MediaInfo, out_path: Path, settings: ProxySettings, h
                 done[i] = 1.0
                 report()
 
-        with ThreadPoolExecutor(max_workers=settings.jobs) as pool:
+        pool = ThreadPoolExecutor(max_workers=settings.jobs)
+        try:
             list(pool.map(work, range(len(spans))))     # re-raises the first failure
+        except BaseException:
+            cancel.set()                                 # workers' ffmpeg processes exit on the next progress tick
+            raise
+        finally:
+            pool.shutdown(wait=True, cancel_futures=True)
 
         listing = tmp / "segments.txt"
         listing.write_text("".join(f"file '{p.as_posix()}'\n" for p in seg_paths), encoding="utf-8")

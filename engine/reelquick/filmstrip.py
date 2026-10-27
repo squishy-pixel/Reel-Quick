@@ -92,11 +92,11 @@ def build_filmstrip(
             "file": name,
         }
 
-    with ThreadPoolExecutor(max_workers=workers) as pool:
+    pool = ThreadPoolExecutor(max_workers=workers)
+    try:
         futures = [pool.submit(work, i, f) for i, f in enumerate(frames)]
         for fut in as_completed(futures):
             if cancel is not None and cancel.is_set():
-                pool.shutdown(cancel_futures=True)
                 raise FfmpegError(["filmstrip"], -1, "cancelled")
             try:
                 i, entry = fut.result()
@@ -106,6 +106,9 @@ def build_filmstrip(
             done += 1
             if on_progress:
                 on_progress(done / total, done, total)
+    finally:
+        # On Ctrl+C or cancel, drop everything still queued; in-flight thumbnails finish in under a second.
+        pool.shutdown(wait=True, cancel_futures=True)
 
     if errors and not entries:
         raise FfmpegError(["filmstrip"], -1, errors[0])
