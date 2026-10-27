@@ -62,6 +62,7 @@ export const api = {
   startProxy: (b: { height?: number; bitrate?: string }) => call<Job>("POST", "/api/jobs/proxy", b),
   startRender: (b: { clip_ids?: string[]; overwrite?: boolean; from_proxy?: boolean }) => call<Job>("POST", "/api/jobs/render", b),
   recent: () => call<Recent[]>("GET", "/api/recent"),
+  fonts: () => call<{ file: string; url: string; family: string; weight: number; italic: boolean; playoff: boolean }[]>("GET", "/api/fonts"),
   cancelJob: (id: string) => call<{ ok: boolean }>("POST", `/api/jobs/${id}/cancel`),
   reveal: (path: string) => call<{ ok: boolean }>("POST", "/api/reveal", { path }),
   audioPreview: (at_frame: number, seconds = 15) => call<{ tracks: { track: number; url: string; wave: string; channels: number }[] }>("POST", "/api/audio-preview", { at_frame, seconds }),

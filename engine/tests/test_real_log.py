@@ -111,3 +111,16 @@ def test_clip_prefill_from_nearest_marker_and_camera_in_name():
     proj.settings.name_pattern = "{date}_{game}_{seq:02d}_{shell}_{desc}"
     proj.renumber()
     assert clip.name == "261008_WK06-TBvDAL_01_Booth"
+
+
+def test_library_name_parsing():
+    from pathlib import Path
+    from reelquick.library import parse_name
+    m = parse_name(Path("2025WK04-SEAvsARI_MatchUp_01_HotAirBalloons00260425.mov"))
+    assert m == {"game": "2025WK04-SEAvsARI", "shell_raw": "MatchUp", "shell": "Match-Up", "seq": 1,
+                 "note": "HotAirBalloons", "source_frame": 260425}
+    m = parse_name(Path("2025WK02-WASvsGB_Booth_01_00255048.mov"))
+    assert m["shell"] == "Booth" and m["note"] == "" and m["source_frame"] == 255048
+    m = parse_name(Path("2025WKWC-DENvsCHI_BaseballCard_02_01122631.mov"))
+    assert m["game"] == "2025WKWC-DENvsCHI" and m["shell"] == "Player Card"
+    assert parse_name(Path("random.mov")) is None

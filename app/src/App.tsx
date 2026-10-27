@@ -23,6 +23,15 @@ export default function App() {
   const [pendingStill, setPendingStill] = useState<number | null>(null);
   const [recent, setRecent] = useState<Recent[]>([]);
   const [pstatus, setPstatus] = useState({ rate: 0, mode: "no video" });
+  // Fonts dropped in <work root>/fonts: Playoff takes over the numerals when present, as the brand guide asks.
+  useEffect(() => {
+    api.fonts().then((fonts) => {
+      if (!fonts.length) return;
+      const css = fonts.map((f) => `@font-face{font-family:"${f.playoff ? "Playoff" : f.family}";font-weight:${f.weight};font-style:${f.italic ? "italic" : "normal"};src:url("${f.url}");font-display:swap;}`).join("\n");
+      const el = document.createElement("style"); el.textContent = css; document.head.appendChild(el);
+      if (fonts.some((f) => f.playoff)) document.documentElement.style.setProperty("--mono", '"Playoff", "Saira Semi Condensed", "Saira", monospace');
+    }).catch(() => {});
+  }, []);
   useEffect(() => { if (state && !state.project) api.recent().then(setRecent).catch(() => setRecent([])); }, [state?.project === null]); // eslint-disable-line react-hooks/exhaustive-deps
   const [thumbW, setThumbWState] = useState(() => { try { return Math.max(THUMB_MIN, Math.min(THUMB_MAX, Number(localStorage.getItem("rq.thumbW")) || 160)); } catch { return 160; } });
   const setThumbW = (w: number) => { setThumbWState(w); try { localStorage.setItem("rq.thumbW", String(w)); } catch { /* ignore */ } };

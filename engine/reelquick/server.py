@@ -233,6 +233,29 @@ def create_app(session: Session | None = None) -> FastAPI:
     def put_vocab(body: dict):
         return save_vocab(session.work_root, body)
 
+    @app.get("/api/fonts")
+    def fonts():
+        """Font files the user dropped in <work root>/fonts, so licensed fonts never enter the repo."""
+        d = session.work_root / "fonts"
+        out = []
+        if d.is_dir():
+            for f in sorted(d.iterdir()):
+                if f.suffix.lower() in (".ttf", ".otf", ".woff", ".woff2"):
+                    stem = f.stem
+                    fam = re.split(r"[-_ ]", stem)[0]
+                    low = stem.lower()
+                    weight = 700 if "bold" in low or "black" in low or "heavy" in low else 300 if "light" in low or "thin" in low else 500 if "medium" in low or "semi" in low else 400
+                    out.append({"file": f.name, "url": f"/userfonts/{f.name}", "family": fam, "weight": weight,
+                                "italic": "italic" in low or "oblique" in low, "playoff": "playoff" in low})
+        return out
+
+    @app.get("/userfonts/{name}")
+    def userfont(name: str):
+        p = session.work_root / "fonts" / Path(name).name
+        if not p.is_file():
+            raise HTTPException(404)
+        return FileResponse(p, headers={"Cache-Control": "max-age=86400"})
+
     @app.get("/api/recent")
     def recent():
         return recent_projects(session.work_root)

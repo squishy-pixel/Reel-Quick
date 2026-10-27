@@ -159,6 +159,31 @@ def audio_preview(src, out_dir, at_, seconds) -> None:
     click.echo(f"{len(info.audio)} tracks from {frames_to_tc(info.start_frames + frame, info.rate, info.drop_frame)}")
 
 
+@main.command("library")
+@click.argument("clips_folder", type=click.Path(exists=True, file_okay=False))
+@click.argument("out_dir", type=click.Path(file_okay=False))
+@click.option("--frames", default=3, show_default=True, help="Reference frames to pull from each clip.")
+@click.option("--width", default=320, show_default=True)
+@click.option("--workers", default=6, show_default=True)
+def library_cmd(clips_folder, out_dir, frames, width, workers) -> None:
+    """Catalogue finished clips by shell and pull reference frames from each (seed for the detector)."""
+    from .library import build_library
+    bar = _Bar("library")
+    cat = build_library(clips_folder, out_dir, frames, width, workers, on_progress=bar)
+    click.echo(f"{len(cat['clips'])} clips across {len(cat['games'])} games")
+    for shell, n in cat["shells"].items():
+        click.echo(f"  {n:4d}  {shell}")
+    if cat["unmatched"]:
+        click.echo(f"{len(cat['unmatched'])} file(s) did not match the naming pattern:", err=True)
+        for u in cat["unmatched"][:10]:
+            click.echo(f"  {u}", err=True)
+    for e in cat["errors"][:10]:
+        click.echo(f"error: {e}", err=True)
+    click.echo(f"catalogue: {Path(out_dir) / 'library.json'}")
+    if cat.get("zip"):
+        click.echo(f"frames zip: {cat['zip']}")
+
+
 @main.command("lut-check")
 @click.argument("lut_file", type=click.Path(exists=True, dir_okay=False), required=False)
 def lut_check(lut_file) -> None:
