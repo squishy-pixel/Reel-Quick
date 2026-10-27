@@ -8,6 +8,7 @@ white, with a soft knee above it so fireworks and speculars do not clip hard.
 
 from __future__ import annotations
 
+import math
 import os
 import re
 import sys
@@ -147,8 +148,10 @@ def lut_filter(info: MediaInfo, lut: Lut) -> str:
     first and expanded again after. Done in float so nothing is quantised.
     """
     matrix_in = info.color_space or "bt2020nc"
+    trc_in = info.color_transfer or "arib-std-b67"
+    prim_in = info.color_primaries or "bt2020"
     parts = [
-        f"zscale=min={matrix_in}:m=gbr:rin=tv:r=pc",
+        f"zscale=tin={trc_in}:pin={prim_in}:min={matrix_in}:rin=tv:t={trc_in}:p={prim_in}:m=gbr:r=pc",
         "format=gbrpf32le",
     ]
     if lut.range == "narrow":
@@ -157,30 +160,37 @@ def lut_filter(info: MediaInfo, lut: Lut) -> str:
     if lut.range == "narrow":
         parts.append(_levels(LEGAL_BLACK, LEGAL_WHITE, 0.0, 1.0))
     parts += [
-        "setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709",
-        "zscale=min=gbr:m=bt709:rin=pc:r=tv",
+        "zscale=tin=bt709:pin=bt709:min=gbr:rin=pc:t=bt709:p=bt709:m=bt709:r=tv",
         "format=yuv420p",
     ]
     return ",".join(parts)
 
 
 def builtin_sdr_filter(info: MediaInfo, caps: Capabilities, peak_nits: int = 1000) -> str:
+    """BT.2408 style HLG/PQ to SDR without a LUT.
+
+    Every zscale step names its input and output matrix, transfer, primaries
+    and range in full. Newer zscale builds refuse to guess the RGB matrix when
+    leaving YUV ("no path between colorspaces"), and the patch files used by
+    lut-check may arrive with unknown transfer tags, so nothing is left to
+    frame metadata.
+    """
     if not info.is_hdr:
         return "format=yuv420p"
     if caps.tonemap and caps.has_filter("exposure"):
         trc = "arib-std-b67" if info.is_hlg else "smpte2084"
+        matrix_in = info.color_space or "bt2020nc"
         # zimg linear light is scaled so 1.0 = peak_nits. Reference white is 203 nits,
         # so multiply by peak/203 (2.3 EV at 1000) to put it at 1.0, then knee the rest.
         ratio = peak_nits / 203.0
-        import math
         ev = math.log2(ratio)
         return (
-            f"zscale=t=linear:npl={peak_nits}:tin={trc}:pin=bt2020:min=bt2020nc,"
+            f"zscale=tin={trc}:pin=bt2020:min={matrix_in}:rin=tv:t=linear:p=bt2020:m=gbr:r=pc:npl={peak_nits},"
             "format=gbrpf32le,"
             f"exposure=exposure={ev:.3f},"
-            "zscale=p=bt709,"
+            "zscale=tin=linear:pin=bt2020:min=gbr:rin=pc:t=linear:p=bt709:m=gbr:r=pc,"
             f"tonemap=mobius:param=0.9:peak={ratio:.3f},"
-            "zscale=t=bt709:m=bt709:r=tv,"
+            "zscale=tin=linear:pin=bt709:min=gbr:rin=pc:t=bt709:p=bt709:m=bt709:r=tv,"
             "format=yuv420p"
         )
     if caps.has_filter("colorspace"):

@@ -53,6 +53,7 @@ def _patch(level: float, out: Path) -> Path:
     subprocess.run([ffmpeg_bin(), "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=gray:s=256x144:r=1",
                     "-frames:v", "1", "-vf", f"format=yuv422p10le,lutyuv=y={y}:u=512:v=512",
                     "-c:v", "libx264", "-preset", "ultrafast", "-qp", "0", "-pix_fmt", "yuv422p10le",
+                    "-x264-params", "colorprim=bt2020:transfer=arib-std-b67:colormatrix=bt2020nc:range=tv",
                     "-color_primaries", "bt2020", "-color_trc", "arib-std-b67", "-colorspace", "bt2020nc",
                     "-color_range", "tv", str(out)], check=True)
     return out
