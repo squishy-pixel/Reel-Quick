@@ -11,7 +11,7 @@ import time
 from dataclasses import dataclass
 
 from .color import active_lut, sdr_filter
-from .ffmpeg import FfmpegError, capabilities, encoder_works, fmt_seconds, run_ffmpeg
+from .ffmpeg import FfmpegError, capabilities, encoder_works, filter_options, fmt_seconds, run_ffmpeg
 from .probe import MediaInfo
 
 
@@ -74,8 +74,52 @@ def pipelines(info: MediaInfo, seconds: float, at: float) -> list[tuple[str, lis
         placebo = ("libplacebo=w=1920:h=1080:colorspace=bt709:color_primaries=bt709:color_trc=bt709"
                    ":range=tv:format=yuv420p:tonemapping=auto")
         runs.append((f"GPU tonemap (libplacebo) + {enc_name}",
-                     ["-init_hw_device", "vulkan", *seek, *cuda, "-i", src, *dur, "-map", v, "-vf", placebo, *enc, *null]))
+                     ["-init_hw_device", "vulkan", *seek, "-i", src, *dur, "-map", v, "-vf", placebo, *enc, *null]))
+        runs += gpu_lut_pipelines(info, seconds, at)
     return runs
+
+
+def gpu_lut_filter(lut_path: str, out_format: str = "yuv420p") -> str:
+    """libplacebo applying a full-range conversion LUT on the GPU, no colour mapping of its own."""
+    from .color import filter_path
+    return (f"libplacebo=lut={filter_path(lut_path)}:lut_type=conversion"
+            f":colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv:format={out_format}")
+
+
+def gpu_lut_pipelines(info: MediaInfo, seconds: float, at: float) -> list[tuple[str, list[str]]]:
+    """Experimental rows: the baked LUT applied by libplacebo. Needs a build whose libplacebo has `lut`."""
+    lut = active_lut()
+    if lut is None or "lut" not in filter_options("libplacebo"):
+        return []
+    from .cubelut import ensure_baked
+    baked = str(ensure_baked(lut.path)) if lut.range == "narrow" else lut.path
+    caps = capabilities()
+    src = info.path
+    v = f"0:{info.video_stream_index}"
+    seek = ["-ss", fmt_seconds(at)]
+    dur = ["-t", fmt_seconds(seconds)]
+    null = ["-f", "null", "-"]
+    nvenc = encoder_works("h264_nvenc")
+    enc = NVENC if nvenc else ["-c:v", "libx264", "-preset", "veryfast", "-crf", "21"]
+    enc_name = "NVENC" if nvenc else "libx264"
+    rows = [
+        (f"GPU LUT: CPU dec -> libplacebo -> {enc_name}",
+         ["-init_hw_device", "vulkan", *seek, "-i", src, *dur, "-map", v, "-vf", gpu_lut_filter(baked), *enc, *null]),
+    ]
+    if caps.cuda_decode and nvenc:
+        rows.append((
+            "GPU LUT all on GPU: NVDEC -> vulkan -> libplacebo -> cuda -> NVENC",
+            ["-init_hw_device", "cuda=cu", "-init_hw_device", "vulkan=vk@cu", "-filter_hw_device", "vk",
+             *seek, "-hwaccel", "cuda", "-hwaccel_output_format", "cuda", "-i", src, *dur, "-map", v,
+             "-vf", f"hwmap=derive_device=vulkan,{gpu_lut_filter(baked, 'nv12')},hwmap=derive_device=cuda",
+             *enc, *null]))
+        rows.append((
+            "GPU LUT: NVDEC -> vulkan -> libplacebo -> download -> NVENC",
+            ["-init_hw_device", "cuda=cu", "-init_hw_device", "vulkan=vk@cu", "-filter_hw_device", "vk",
+             *seek, "-hwaccel", "cuda", "-hwaccel_output_format", "cuda", "-i", src, *dur, "-map", v,
+             "-vf", f"hwmap=derive_device=vulkan,{gpu_lut_filter(baked, 'nv12')},hwdownload,format=nv12",
+             *enc, *null]))
+    return rows
 
 
 def run_bench(info: MediaInfo, seconds: float = 30.0, at: float | None = None,

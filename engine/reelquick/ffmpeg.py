@@ -224,6 +224,19 @@ def capabilities() -> Capabilities:
     return caps
 
 
+@lru_cache(maxsize=16)
+def filter_options(name: str) -> set[str]:
+    """Option names a filter accepts in this build, from `ffmpeg -h filter=NAME`."""
+    proc = subprocess.run([ffmpeg_bin(), "-hide_banner", "-h", f"filter={name}"],
+                          capture_output=True, text=True, **_popen_kwargs())
+    opts = set()
+    for line in proc.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[1].startswith("<") and parts[1].endswith(">"):
+            opts.add(parts[0])
+    return opts
+
+
 @lru_cache(maxsize=4)
 def encoder_works(encoder: str) -> bool:
     """Encode two frames of test pattern with the encoder to prove it runs here.
