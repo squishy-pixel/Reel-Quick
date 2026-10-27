@@ -139,13 +139,15 @@ def _levels(lo_in: float, hi_in: float, lo_out: float, hi_out: float) -> str:
     return f"colorlevels={ins}:{outs}"
 
 
-def lut_filter(info: MediaInfo, lut: Lut) -> str:
+def lut_filter(info: MediaInfo, lut: Lut, bake: bool = True) -> str:
     """YCbCr (as tagged) -> R'G'B' -> 3D LUT -> BT.709 YCbCr 4:2:0.
 
     zscale always hands over full-range RGB (0.0 = legal black, 1.0 = legal
     white). A LUT built on 10-bit code values ('narrow', the broadcast norm,
     64 = black and 940 = white) needs the signal squeezed into that range
-    first and expanded again after. Done in float so nothing is quantised.
+    first and expanded again after. By default that is baked into a cached
+    full-range copy of the LUT (see cubelut.py); bake=False keeps the two
+    colorlevels passes, which is slower but useful for cross-checking.
     """
     matrix_in = info.color_space or "bt2020nc"
     trc_in = info.color_transfer or "arib-std-b67"
@@ -154,10 +156,16 @@ def lut_filter(info: MediaInfo, lut: Lut) -> str:
         f"zscale=tin={trc_in}:pin={prim_in}:min={matrix_in}:rin=tv:t={trc_in}:p={prim_in}:m=gbr:r=pc",
         "format=gbrpf32le",
     ]
-    if lut.range == "narrow":
+    path = lut.path
+    narrow_passes = lut.range == "narrow"
+    if narrow_passes and bake:
+        from .cubelut import ensure_baked
+        path = str(ensure_baked(lut.path))
+        narrow_passes = False
+    if narrow_passes:
         parts.append(_levels(0.0, 1.0, LEGAL_BLACK, LEGAL_WHITE))
-    parts.append(f"lut3d=file={filter_path(lut.path)}:interp=tetrahedral")
-    if lut.range == "narrow":
+    parts.append(f"lut3d=file={filter_path(path)}:interp=tetrahedral")
+    if narrow_passes:
         parts.append(_levels(LEGAL_BLACK, LEGAL_WHITE, 0.0, 1.0))
     parts += [
         "zscale=tin=bt709:pin=bt709:min=gbr:rin=pc:t=bt709:p=bt709:m=bt709:r=tv",

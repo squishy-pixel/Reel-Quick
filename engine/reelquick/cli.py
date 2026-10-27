@@ -12,7 +12,7 @@ import click
 from . import __version__
 from .color import Lut, active_lut, set_lut
 from .ffmpeg import FfmpegError, capabilities, encoder_works
-from . import lutcheck
+from . import bench as benchmod, lutcheck
 from .filmstrip import build_filmstrip
 from .markers import import_log_csv
 from .naming import GameInfo, build_name
@@ -98,6 +98,26 @@ def caps() -> None:
     lut = active_lut()
     out["sdr_lut"] = {"path": lut.path, "range": lut.range} if lut else None
     click.echo(json.dumps(out, indent=1))
+
+
+@main.command()
+@click.argument("src", type=click.Path(exists=True, dir_okay=False))
+@click.option("--seconds", default=30.0, show_default=True, help="Length of the slice to time.")
+@click.option("--at", "at_", default=None, help="Where to take the slice: time of day, timecode, or frame. Default one hour in.")
+@click.option("--only", default=None, help="Run only pipelines whose name contains this text.")
+def bench(src: str, seconds: float, at_: str | None, only: str | None) -> None:
+    """Time each stage of the proxy pipeline on a slice of the file to find the bottleneck."""
+    info = probe(src)
+    at = None
+    if at_:
+        at = float(_parse_point(at_, info)) / float(info.rate.fps)
+    c = capabilities()
+    lut = active_lut()
+    click.echo(f"ffmpeg {c.version.split()[0]}  nvenc={encoder_works('h264_nvenc')} cuda_decode={c.cuda_decode} "
+               f"libplacebo={c.has_filter('libplacebo')}  lut={Path(lut.path).name if lut else None}")
+    click.echo(f"slice: {seconds:.0f}s starting {at if at is not None else 'one hour in'}; each row reads the same frames\n")
+    for r in benchmod.run_bench(info, seconds, at, only):
+        click.echo(r.line(info))
 
 
 @main.command("lut-check")

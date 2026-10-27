@@ -84,6 +84,32 @@ def test_pick_sdr_lut_prefers_hdr_to_sdr(tmp_path):
 
 def test_narrow_and_full_paths_differ(info, tmp_path):
     cube = _identity_cube(tmp_path / "id.cube")
-    narrow = color.lut_filter(info, Lut(str(cube), "narrow"))
+    narrow = color.lut_filter(info, Lut(str(cube), "narrow"), bake=False)
     full = color.lut_filter(info, Lut(str(cube), "full"))
     assert narrow.count("colorlevels") == 2 and "colorlevels" not in full
+    baked = color.lut_filter(info, Lut(str(cube), "narrow"))
+    assert "colorlevels" not in baked and ".full." in baked
+
+
+def test_baked_lut_matches_two_pass_version(tmp_path):
+    from reelquick.cubelut import Cube, bake_full_range, ensure_baked
+    # a LUT that is not identity: gamma-ish curve on red, a swap on green/blue, plus a lift
+    n = 9
+    table = []
+    for b in range(n):
+        for g in range(n):
+            for r in range(n):
+                rr, gg, bb = r / (n - 1), g / (n - 1), b / (n - 1)
+                table.append((rr ** 1.3, 0.05 + 0.9 * bb, gg * 0.95))
+    src = tmp_path / "look.cube"
+    Cube(n, table, "look").write(src)
+    baked = ensure_baked(src, tmp_path / "cache")
+    assert baked.exists() and ensure_baked(src, tmp_path / "cache") == baked
+    results = lutcheck.check(str(src))
+    two_pass = next(r for r in results if r.label == "lut narrow")
+    one_pass = next(r for r in results if r.label == "lut baked")
+    for lvl in two_pass.luma:
+        assert abs(two_pass.luma[lvl] - one_pass.luma[lvl]) <= 1.0, (lvl, two_pass.luma[lvl], one_pass.luma[lvl])
+    # sampling a grid point returns the stored value exactly
+    c = Cube.load(src)
+    assert c.sample(0.5, 0.25, 1.0) == pytest.approx(c._at(4, 2, 8), abs=1e-9)

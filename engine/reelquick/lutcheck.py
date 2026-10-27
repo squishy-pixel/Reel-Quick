@@ -101,8 +101,9 @@ def check(lut_path: str | None = None) -> list[PatchResult]:
         info = _fake_hlg_info("")
         results.append(measure(builtin_sdr_filter(info, capabilities()), "built-in", wd))
         if lut_path:
-            for rng in ("narrow", "full"):
-                results.append(measure(lut_filter(info, Lut(lut_path, rng)), f"lut {rng}", wd))
+            results.append(measure(lut_filter(info, Lut(lut_path, "narrow"), bake=False), "lut narrow", wd))
+            results.append(measure(lut_filter(info, Lut(lut_path, "narrow"), bake=True), "lut baked", wd))
+            results.append(measure(lut_filter(info, Lut(lut_path, "full")), "lut full", wd))
     return results
 
 

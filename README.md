@@ -52,7 +52,15 @@ look. The LUT is applied on 10-bit code values (narrow range, 64 = black,
 940 = white), which `reelquick lut-check` confirmed: its corners sit on SDI
 codes 4 and 1007, reference white lands at 94% and highlights ride into
 super-white. Without a LUT, a BT.2408 style conversion is used that matches
-the LUT through the midtones and differs only in the highlight knee.
+the LUT through the midtones and differs only in the highlight knee. The
+narrow-range handling is baked into a cached full-range copy of the LUT
+(`luts/.baked/`) on first use, which removes two filter passes per frame.
+
+**Measure before optimising.** `reelquick bench <mxf>` times each stage of
+the proxy pipeline on a 30 second slice of the real file: CPU and GPU decode,
+the LUT chain at 1080p and 720p, the current proxy pipeline, and GPU
+tone-mapping via libplacebo. On the first real run the LUT interpolation on
+the CPU was the bottleneck, not the drive and not decoding.
 
 **Audio is lossless either way.** Broadcast MXFs carry 16 mono PCM tracks.
 The engine joins the chosen tracks (default 1 and 2) into one stereo PCM
@@ -174,6 +182,9 @@ engine/reelquick/
   markers.py    log CSV import
   naming.py     file name pattern
   project.py    project file (JSON)
+  cubelut.py    .cube reader, tetrahedral sampling, narrow-range baking
+  lutcheck.py   HLG patch measurements for any SDR conversion
+  bench.py      pipeline stage timings on a slice of the real file
   cli.py        command line
 engine/tests/   pytest suite with synthetic MXF fixture
 ```
