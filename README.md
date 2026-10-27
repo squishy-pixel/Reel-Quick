@@ -42,8 +42,17 @@ is a frame number, no sync point needed. One offset setting handles a log
 clock in a different time zone or running a few seconds off.
 
 **HDR stays HDR unless you ask.** ProRes and stream copy outputs carry the
-source's BT.2020 / HLG tags. Share MP4s are tone-mapped to BT.709 SDR by
-default so they look right on anyone's phone, with an HLG HEVC option.
+source's BT.2020 / HLG tags. Share MP4s, the proxy, thumbnails and stills are
+converted to BT.709 SDR so they look right on anyone's screen, with an HLG
+HEVC option for the MP4.
+
+**SDR conversion uses the broadcast's own LUT.** Drop the NBCU HLG to SDR
+display-light .cube in `engine/luts/` and every SDR output gets the on-air
+look. The LUT is applied on 10-bit code values (narrow range, 64 = black,
+940 = white), which `reelquick lut-check` confirmed: its corners sit on SDI
+codes 4 and 1007, reference white lands at 94% and highlights ride into
+super-white. Without a LUT, a BT.2408 style conversion is used that matches
+the LUT through the midtones and differs only in the highlight knee.
 
 **Audio is lossless either way.** Broadcast MXFs carry 16 mono PCM tracks.
 The engine joins the chosen tracks (default 1 and 2) into one stereo PCM

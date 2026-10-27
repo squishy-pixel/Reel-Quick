@@ -67,6 +67,7 @@ def build_filmstrip(
     on_progress: Callable[[float, int, int], None] | None = None,
     cancel: threading.Event | None = None,
     use_hw: bool = False,
+    force: bool = False,
 ) -> FilmstripIndex:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -81,7 +82,7 @@ def build_filmstrip(
     def work(i: int, frame: int) -> tuple[int, dict]:
         name = f"{i:06d}.jpg"
         path = out_dir / name
-        if not path.exists():
+        if force or not path.exists():
             thumbnail_at(info, frame, path, width, use_hw=use_hw)
         return i, {
             "i": i,

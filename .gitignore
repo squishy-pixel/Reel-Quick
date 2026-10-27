@@ -20,3 +20,7 @@ app/out/
 *.jpg
 *.png
 .reelquick/
+
+# LUTs are licensed material, keep them out of the repo
+engine/luts/*
+!engine/luts/README.md

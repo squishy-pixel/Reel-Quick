@@ -10,7 +10,9 @@ from pathlib import Path
 import click
 
 from . import __version__
+from .color import Lut, active_lut, set_lut
 from .ffmpeg import FfmpegError, capabilities, encoder_works
+from . import lutcheck
 from .filmstrip import build_filmstrip
 from .markers import import_log_csv
 from .naming import GameInfo, build_name
@@ -72,8 +74,19 @@ class _Bar:
 
 @click.group()
 @click.version_option(__version__)
-def main() -> None:
+@click.option("--lut", "lut_path", type=click.Path(exists=True, dir_okay=False), default=None,
+              help="3D LUT for HDR to SDR conversion. Default: REELQUICK_SDR_LUT or the first file in engine/luts.")
+@click.option("--lut-range", type=click.Choice(["narrow", "full"]), default=None,
+              help="RGB range the LUT expects in and out. Default narrow (legal range).")
+@click.option("--no-lut", is_flag=True, help="Use the built-in conversion even if a LUT is present.")
+def main(lut_path, lut_range, no_lut) -> None:
     """Reel Quick engine."""
+    if no_lut:
+        set_lut(None)
+    elif lut_path:
+        set_lut(Lut(lut_path, lut_range or "narrow"))
+    elif lut_range and active_lut():
+        set_lut(Lut(active_lut().path, lut_range))
 
 
 @main.command()
@@ -82,7 +95,28 @@ def caps() -> None:
     c = capabilities()
     out = c.summary()
     out["nvenc_works"] = encoder_works("h264_nvenc") if c.nvenc else False
+    lut = active_lut()
+    out["sdr_lut"] = {"path": lut.path, "range": lut.range} if lut else None
     click.echo(json.dumps(out, indent=1))
+
+
+@main.command("lut-check")
+@click.argument("lut_file", type=click.Path(exists=True, dir_okay=False), required=False)
+def lut_check(lut_file) -> None:
+    """Measure the SDR conversion on HLG test patches; with a LUT, try both range conventions.
+
+    Reports 8-bit BT.709 luma for 25%, 50%, 75% and 100% HLG signal. 75% is
+    HLG reference white and should land near 235.
+    """
+    path = lut_file or (active_lut().path if active_lut() else None)
+    results = lutcheck.check(path)
+    for r in results:
+        click.echo(r.summary)
+    rec = lutcheck.recommend(results)
+    if rec:
+        click.echo(f"recommended --lut-range {rec}")
+    elif not path:
+        click.echo("no LUT given or found; only the built-in conversion was measured")
 
 
 @main.command("probe")
@@ -115,12 +149,15 @@ def probe_cmd(src: str, as_json: bool) -> None:
 @click.option("--width", default=320, show_default=True)
 @click.option("--workers", default=8, show_default=True)
 @click.option("--hw", is_flag=True, help="Decode on the GPU (CUDA).")
-def filmstrip(src: str, out_dir: str, interval: float, width: int, workers: int, hw: bool) -> None:
-    """Extract a thumbnail every few seconds for the whole file."""
+@click.option("--force", is_flag=True, help="Regenerate thumbnails that already exist.")
+def filmstrip(src: str, out_dir: str, interval: float, width: int, workers: int, hw: bool, force: bool) -> None:
+    """Extract a thumbnail every few seconds for the whole file. Existing thumbnails are kept unless --force."""
     info = probe(src)
+    lut = active_lut()
+    click.echo(f"SDR conversion: {Path(lut.path).name} ({lut.range} range)" if lut else "SDR conversion: built-in (no LUT found)")
     bar = _Bar("filmstrip")
     t0 = time.time()
-    index = build_filmstrip(info, out_dir, interval, width, workers, on_progress=bar, use_hw=hw)
+    index = build_filmstrip(info, out_dir, interval, width, workers, on_progress=bar, use_hw=hw, force=force)
     dt = time.time() - t0
     click.echo(f"{index.count} thumbnails in {dt:.0f}s ({index.count/dt:.1f}/s) -> {out_dir}")
 
