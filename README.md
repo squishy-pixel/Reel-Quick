@@ -1,0 +1,144 @@
+# Reel Quick
+
+Find, mark and cut the segments you made out of a six hour broadcast recording,
+and render just those clips at broadcast quality.
+
+Built for the Thursday Night Football workflow: a 600 to 700 GB MXF return feed
+(H.264 4:2:2 Intra, 1920x1080, 59.94, HLG), a tech's log of what aired when, and
+20 to 30 pieces of 7 to 12 seconds each that need to come out as ProRes 422
+with a couple of seconds of handles, named consistently, carrying the original
+time-of-day timecode.
+
+## Status
+
+**Phase 1 engine: done and tested.** Python package in `engine/` with a CLI.
+Verified against a synthetic file with the same codec, color, timecode and
+audio layout as the real feed:
+
+- `probe` reads codec, GOP structure, HDR tags, drop-frame time-of-day timecode, audio layout
+- `markers` maps the log CSV (Time, Type, Shell, Description) onto the file by time of day
+- `filmstrip` extracts a thumbnail every N seconds for a visual sweep of the whole show
+- `proxy` renders a browser-friendly SDR MP4 of the whole program (GPU encode when available)
+- `cut` renders one clip as stream copy, ProRes 422 HLG, or share MP4, frame accurate, with handles
+- `init` and `render` manage a project file with the clip list and batch render it
+
+Not yet built: the desktop UI (Electron), content detection, OCR naming, the iPad companion.
+
+## Design decisions
+
+**Stream copy is frame accurate on this feed.** The source is intra-only
+(`High 4:2:2 Intra`, GOP N=1), so every frame is a cut point. Verified by
+comparing decoded pixel hashes of the cut against the source. The engine
+refuses stream copy on long-GOP sources and tells you to use ProRes.
+
+**Frame numbers are the source of truth.** Timecode strings exist for humans
+and for the log. All math happens in integer frames, with drop-frame handled
+in `timecode.py`, so 59.94 never drifts.
+
+**Time of day maps straight to the file.** The MXF carries time-of-day
+drop-frame timecode (15:25:00;04 on the sample game). A log entry of 19:32:05
+is a frame number, no sync point needed. One offset setting handles a log
+clock in a different time zone or running a few seconds off.
+
+**HDR stays HDR unless you ask.** ProRes and stream copy outputs carry the
+source's BT.2020 / HLG tags. Share MP4s are tone-mapped to BT.709 SDR by
+default so they look right on anyone's phone, with an HLG HEVC option.
+
+**Audio is lossless either way.** Broadcast MXFs carry 16 mono PCM tracks.
+The engine joins the chosen tracks (default 1 and 2) into one stereo PCM
+track for ProRes and copy outputs, AAC for MP4.
+
+**The proxy doubles as the reference MP4.** One render, two uses: scrubbing in
+the app, and the plain copy of the show you keep anyway. Keyframe every second
+for fast seeking.
+
+**Seek points are floored to the microsecond.** ffmpeg keeps the first packet
+at or after `-ss`, in copy and transcode alike. Flooring never loses the first
+frame; `-frames:v` pins the count at the far end.
+
+## Naming
+
+```
+{date}_{week}_{matchup}_{seq:02d}_{shell}_{desc}
+261022_WK08_NEvCHI_07_LowerThird_Herbstreit-pick.mov
+```
+
+Date as YYMMDD, NFL week as WKnn, away team then home team, a sequence number
+by in point, the Vizrt shell, then free text. Empty parts drop out cleanly.
+
+## Log sheet format
+
+Four columns, header row optional:
+
+| Time | Type | Shell | Description |
+|------|------|-------|-------------|
+| 19:32:05 | AR | LowerThird | Herbstreit pick |
+| 7:41 PM | booth | | Al and Kirk open |
+
+Time is time of day on the truck clock. `19:32:05`, `7:32:05 PM`, `19:32`,
+and `19:32:05;12` all parse.
+
+## Running the engine (Windows, Mac, Linux)
+
+Needs Python 3.11+ and an ffmpeg build with `prores_ks`, `zscale` and
+`tonemap` (the gyan.dev "full" build on Windows has them all plus NVENC).
+
+```powershell
+# one time
+winget install Gyan.FFmpeg          # or put ffmpeg.exe and ffprobe.exe in engine\bin\
+pip install uv
+cd engine
+uv venv
+uv pip install -e ".[dev]"
+
+# every time
+.venv\Scripts\activate
+reelquick caps                          # what can this machine do (NVENC, tonemap...)
+reelquick probe D:\Records\game.mxf
+reelquick markers D:\Records\game.mxf log.csv
+reelquick filmstrip D:\Records\game.mxf D:\Work\game\strip --interval 2 --workers 8
+reelquick proxy D:\Records\game.mxf D:\Work\game\proxy.mp4
+reelquick cut D:\Records\game.mxf D:\Work\game\clips --in 19:32:05 --out 19:32:14 --format prores --name 261022_WK08_NEvCHI_01_LowerThird_Herbie-pick
+```
+
+Run the tests with `python -m pytest` inside `engine/`. They generate a short
+synthetic MXF in the real feed's format, so no media is needed.
+
+## First session on the real machine
+
+Three numbers decide the rest of the design:
+
+1. `reelquick probe` on the real MXF: confirms intra and time-of-day timecode on the actual file.
+2. `reelquick filmstrip` timing: how long the visual sweep takes on a 622 GB file over NVMe and over the NAS.
+3. `reelquick proxy` timing with NVENC against the 2.5 hour CPU benchmark.
+
+## Roadmap
+
+1. **Desktop app** (Electron, React). Open MXF, background jobs with progress,
+   markers on a timeline, filmstrip, JKL player, in/out marking, clip list with
+   per-clip format, render queue. Windows first, Mac from the same code.
+2. **Detection.** Reference library from past weeks' clips grouped by type and
+   shell. GPU image embeddings on sampled frames, audio cues (fireworks, music),
+   candidate markers with suggested in/out snapped to shot changes. Confirmed
+   clips feed back into the library. OCR name suggestions.
+3. **iPad companion.** The same UI as a plain web page: load proxy and project
+   from Files, mark on the plane, export the clip list, render on the PC.
+
+## Layout
+
+```
+engine/reelquick/
+  timecode.py   drop-frame math, time-of-day parsing
+  probe.py      ffprobe -> MediaInfo
+  ffmpeg.py     locate binaries, run with progress, capability checks
+  color.py      HLG tags, SDR tone-map chain
+  audio.py      track selection and joining
+  filmstrip.py  thumbnail sweep
+  proxy.py      whole-program MP4
+  render.py     clip rendering (copy / prores / mp4)
+  markers.py    log CSV import
+  naming.py     file name pattern
+  project.py    project file (JSON)
+  cli.py        command line
+engine/tests/   pytest suite with synthetic MXF fixture
+```

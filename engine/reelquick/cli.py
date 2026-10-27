@@ -1,0 +1,244 @@
+"""Command line front end. Useful on its own for benchmarking before the app exists."""
+
+from __future__ import annotations
+
+import json
+import sys
+import time
+from pathlib import Path
+
+import click
+
+from . import __version__
+from .ffmpeg import FfmpegError, capabilities, encoder_works
+from .filmstrip import build_filmstrip
+from .markers import import_log_csv
+from .naming import GameInfo, build_name
+from .probe import probe
+from .project import Project
+from .proxy import ProxySettings, build_proxy
+from .render import ClipSpec, OutputFormat, render_clip
+from .timecode import frames_to_tc, parse_time_of_day, tc_to_frames
+
+
+def _tracks(text: str | None) -> tuple[int, ...] | None:
+    if not text:
+        return None
+    return tuple(int(x) for x in text.replace(" ", "").split(",") if x)
+
+
+def _parse_point(text: str, info) -> int:
+    """Accept a frame number (f1234 or 1234), a timecode, or a time of day.
+
+    Both timecode and time of day are on the file's own clock, so 19:32:05 and
+    19:32:05;00 mean the same frame.
+    """
+    text = text.strip()
+    if text.isdigit():
+        return int(text)
+    if text.lower().startswith("f") and text[1:].isdigit():
+        return int(text[1:])
+    try:
+        frames = tc_to_frames(text, info.rate, drop=info.drop_frame)
+    except ValueError:
+        frames = parse_time_of_day(text, info.rate)
+    return frames - info.start_frames
+
+
+class _Bar:
+    """Single-line progress with elapsed time and ETA."""
+
+    def __init__(self, label: str):
+        self.label = label
+        self.t0 = time.time()
+        self.last = 0.0
+
+    def __call__(self, frac: float, *_):
+        now = time.time()
+        if frac < 1.0 and now - self.last < 0.5:
+            return
+        self.last = now
+        elapsed = now - self.t0
+        eta = (elapsed / frac - elapsed) if frac > 0.001 else 0.0
+        width = 30
+        filled = int(width * frac)
+        bar = "#" * filled + "-" * (width - filled)
+        sys.stderr.write(f"\r{self.label} [{bar}] {frac*100:5.1f}%  {elapsed:6.0f}s  eta {eta:6.0f}s ")
+        sys.stderr.flush()
+        if frac >= 1.0:
+            sys.stderr.write("\n")
+
+
+@click.group()
+@click.version_option(__version__)
+def main() -> None:
+    """Reel Quick engine."""
+
+
+@main.command()
+def caps() -> None:
+    """Show what this ffmpeg build and machine can do."""
+    c = capabilities()
+    out = c.summary()
+    out["nvenc_works"] = encoder_works("h264_nvenc") if c.nvenc else False
+    click.echo(json.dumps(out, indent=1))
+
+
+@main.command("probe")
+@click.argument("src", type=click.Path(exists=True, dir_okay=False))
+@click.option("--json", "as_json", is_flag=True, help="Machine readable output.")
+def probe_cmd(src: str, as_json: bool) -> None:
+    """Describe a source file."""
+    info = probe(src)
+    if as_json:
+        click.echo(json.dumps(info.to_dict(), indent=1))
+        return
+    click.echo(f"{info.path}")
+    click.echo(f"  {info.size_bytes/1e9:,.1f} GB  {info.duration/3600:.2f} h  {info.nb_frames:,} frames")
+    click.echo(f"  {info.codec} {info.profile}  {info.width}x{info.height}  {float(info.rate.fps):.3f} fps  {info.pix_fmt} {info.bit_depth}-bit")
+    click.echo(f"  intra-frame: {info.is_intra}   stream copy frame accurate: {info.is_intra}")
+    click.echo(f"  color: {info.color_primaries} / {info.color_transfer} / {info.color_space}   HDR: {info.is_hdr} HLG: {info.is_hlg}")
+    tc_kind = "drop-frame" if info.drop_frame else "non-drop"
+    click.echo(f"  start timecode: {info.start_timecode} ({tc_kind})")
+    if info.start_timecode:
+        click.echo(f"  end timecode:   {frames_to_tc(info.start_frames + info.nb_frames - 1, info.rate, info.drop_frame)}")
+    click.echo(f"  audio: {len(info.audio)} track(s), {info.total_audio_channels} channel(s) total")
+    for n, a in enumerate(info.audio, start=1):
+        click.echo(f"    {n:2d}: {a.codec} {a.channels}ch {a.sample_rate} Hz {a.bit_depth or ''}")
+
+
+@main.command()
+@click.argument("src", type=click.Path(exists=True, dir_okay=False))
+@click.argument("out_dir", type=click.Path(file_okay=False))
+@click.option("--interval", default=2.0, show_default=True, help="Seconds between thumbnails.")
+@click.option("--width", default=320, show_default=True)
+@click.option("--workers", default=8, show_default=True)
+@click.option("--hw", is_flag=True, help="Decode on the GPU (CUDA).")
+def filmstrip(src: str, out_dir: str, interval: float, width: int, workers: int, hw: bool) -> None:
+    """Extract a thumbnail every few seconds for the whole file."""
+    info = probe(src)
+    bar = _Bar("filmstrip")
+    t0 = time.time()
+    index = build_filmstrip(info, out_dir, interval, width, workers, on_progress=bar, use_hw=hw)
+    dt = time.time() - t0
+    click.echo(f"{index.count} thumbnails in {dt:.0f}s ({index.count/dt:.1f}/s) -> {out_dir}")
+
+
+@main.command()
+@click.argument("src", type=click.Path(exists=True, dir_okay=False))
+@click.argument("out", type=click.Path(dir_okay=False))
+@click.option("--height", default=1080, show_default=True)
+@click.option("--bitrate", default="8M", show_default=True)
+@click.option("--hlg", is_flag=True, help="Keep HDR instead of tone-mapping to SDR.")
+@click.option("--hevc", is_flag=True, help="HEVC instead of H.264 (smaller, plays in fewer places).")
+@click.option("--audio", default=None, help="Source tracks, 1-based, e.g. 1,2")
+@click.option("--cpu", is_flag=True, help="Do not use the GPU.")
+def proxy(src: str, out: str, height: int, bitrate: str, hlg: bool, hevc: bool, audio: str | None, cpu: bool) -> None:
+    """Render a browser-friendly MP4 of the whole program."""
+    info = probe(src)
+    settings = ProxySettings(height=height, bitrate=bitrate, sdr=not hlg, hevc=hevc,
+                             audio_tracks=_tracks(audio), prefer_gpu=not cpu)
+    bar = _Bar("proxy")
+    t0 = time.time()
+    path = build_proxy(info, out, settings, on_progress=bar)
+    dt = time.time() - t0
+    click.echo(f"{path}  {Path(path).stat().st_size/1e9:.2f} GB in {dt/60:.1f} min  ({info.duration/dt:.1f}x realtime)")
+
+
+@main.command()
+@click.argument("src", type=click.Path(exists=True, dir_okay=False))
+@click.argument("out_dir", type=click.Path(file_okay=False))
+@click.option("--in", "in_", required=True, help="In point: time of day (19:32:05), timecode, or frame.")
+@click.option("--out", "out_", required=True, help="Out point, same forms as --in.")
+@click.option("--name", required=True)
+@click.option("--format", "fmt", type=click.Choice([f.value for f in OutputFormat]), default="prores", show_default=True)
+@click.option("--head", default=2.0, show_default=True, help="Seconds before in.")
+@click.option("--tail", default=2.0, show_default=True, help="Seconds after out.")
+@click.option("--audio", default=None, help="Source tracks, 1-based, e.g. 1,2")
+@click.option("--prores-profile", type=click.Choice(["proxy", "lt", "standard", "hq"]), default="standard", show_default=True)
+@click.option("--mp4-hdr", is_flag=True, help="Keep HLG in the MP4 instead of tone-mapping to SDR.")
+@click.option("--overwrite", is_flag=True)
+def cut(src, out_dir, in_, out_, name, fmt, head, tail, audio, prores_profile, mp4_hdr, overwrite) -> None:
+    """Render one clip."""
+    info = probe(src)
+    fps = float(info.rate.fps)
+    spec = ClipSpec(
+        in_frame=_parse_point(in_, info),
+        out_frame=_parse_point(out_, info),
+        name=name,
+        fmt=OutputFormat(fmt),
+        head_frames=round(head * fps),
+        tail_frames=round(tail * fps),
+        audio_tracks=_tracks(audio),
+        prores_profile=prores_profile,
+        mp4_sdr=not mp4_hdr,
+    )
+    bar = _Bar(name)
+    t0 = time.time()
+    try:
+        path = render_clip(info, spec, out_dir, on_progress=bar, overwrite=overwrite)
+    except FileExistsError as e:
+        raise click.ClickException(f"exists, use --overwrite: {e}")
+    click.echo(f"{path}  {Path(path).stat().st_size/1e6:.1f} MB in {time.time()-t0:.1f}s")
+
+
+@main.command()
+@click.argument("src", type=click.Path(exists=True, dir_okay=False))
+@click.argument("log_csv", type=click.Path(exists=True, dir_okay=False))
+@click.option("--offset", default=0.0, show_default=True, help="Seconds to add to log times (3600 per hour of time zone).")
+@click.option("--json", "as_json", is_flag=True)
+def markers(src: str, log_csv: str, offset: float, as_json: bool) -> None:
+    """Map a log CSV (Time, Type, Shell, Description) onto the file."""
+    info = probe(src)
+    res = import_log_csv(Path(log_csv), info, offset)
+    if as_json:
+        click.echo(json.dumps({"markers": [m.to_dict() for m in res.markers], "skipped": res.skipped}, indent=1))
+        return
+    for m in res.markers:
+        click.echo(f"{m.tc}  frame {m.frame:>9}  {m.kind:<8} {m.shell:<16} {m.description}")
+    for s in res.skipped:
+        click.echo(f"skipped: {s}", err=True)
+    click.echo(f"{len(res.markers)} markers, {len(res.skipped)} skipped")
+
+
+@main.command()
+@click.argument("src", type=click.Path(exists=True, dir_okay=False))
+@click.argument("project_path", type=click.Path(dir_okay=False))
+@click.option("--date", default="", help="YYMMDD")
+@click.option("--week", default="", help="e.g. WK08")
+@click.option("--away", default="")
+@click.option("--home", default="")
+def init(src: str, project_path: str, date: str, week: str, away: str, home: str) -> None:
+    """Create a project file for a game."""
+    info = probe(src)
+    proj = Project(source=str(Path(src).resolve()), info=info, game=GameInfo(date, week, away, home))
+    proj.save(project_path)
+    click.echo(f"wrote {project_path}")
+    click.echo(f"example name: {build_name(proj.game, 1, 'LowerThird', 'Herbstreit pick')}")
+
+
+@main.command("render")
+@click.argument("project_path", type=click.Path(exists=True, dir_okay=False))
+@click.argument("out_dir", type=click.Path(file_okay=False))
+@click.option("--overwrite", is_flag=True)
+def render_project(project_path: str, out_dir: str, overwrite: bool) -> None:
+    """Render every clip in a project."""
+    proj = Project.load(project_path)
+    failures = 0
+    for clip in proj.clips:
+        spec = proj.clip_spec(clip)
+        bar = _Bar(clip.name)
+        try:
+            path = render_clip(proj.info, spec, out_dir, on_progress=bar, overwrite=overwrite)
+            clip.rendered = str(path)
+        except FileExistsError:
+            click.echo(f"skip (exists): {clip.name}")
+        except FfmpegError as e:
+            failures += 1
+            click.echo(f"FAILED {clip.name}: {e}", err=True)
+    proj.save(project_path)
+    click.echo(f"done, {failures} failure(s)")
+
+
+if __name__ == "__main__":
+    main()

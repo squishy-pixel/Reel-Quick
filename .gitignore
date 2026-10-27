@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
+dist/
+build/
+
+# Node / Electron (phase 1 app)
+node_modules/
+app/dist/
+app/out/
+
+# Media and generated working files never belong in git
+*.mxf
+*.mov
+*.mp4
+*.mkv
+*.jpg
+*.png
+.reelquick/

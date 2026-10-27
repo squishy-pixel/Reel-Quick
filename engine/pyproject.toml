@@ -1,0 +1,24 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "reelquick"
+version = "0.1.0"
+description = "Engine for Reel Quick: find, mark and cut broadcast segments out of long MXF game recordings."
+requires-python = ">=3.11"
+dependencies = [
+    "click>=8.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+reelquick = "reelquick.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["reelquick"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
