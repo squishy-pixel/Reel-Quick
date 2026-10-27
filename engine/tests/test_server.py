@@ -45,7 +45,7 @@ def test_game_clips_and_naming(client):
     r = client.post("/api/clips", json={"in_frame": 100, "out_frame": 160, "shell": "LowerThird", "desc": "Herbie pick"})
     assert r.status_code == 200
     clip = r.json()["clip"]
-    assert clip["name"] == "261008_WK06_TBvDAL_01_LowerThird_Herbie-pick"
+    assert clip["name"] == "261008_WK06-TBvDAL_01_LowerThird_Herbie-pick"
     assert clip["formats"] == ["prores", "mp4"]
     r2 = client.post("/api/clips", json={"in_frame": 10, "out_frame": 40, "desc": "earlier"})
     names = [c["name"] for c in r2.json()["project"]["clips"]]

@@ -13,7 +13,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from .markers import Marker
-from .naming import DEFAULT_PATTERN, GameInfo, build_name
+from .naming import DEFAULT_PATTERN, OLD_PATTERNS, GameInfo, build_name
 from .probe import MediaInfo
 from .render import ClipSpec, OutputFormat, output_extension
 from .stills import grab_still
@@ -219,11 +219,14 @@ class Project:
     @classmethod
     def load(cls, path: str | Path) -> "Project":
         d = json.loads(Path(path).read_text(encoding="utf-8"))
+        settings = Settings(**{k: v for k, v in d.get("settings", {}).items() if k in Settings.__dataclass_fields__})
+        if settings.name_pattern in OLD_PATTERNS:
+            settings.name_pattern = DEFAULT_PATTERN
         return cls(
             source=d["source"],
             info=MediaInfo.from_dict(d["info"]),
             game=GameInfo(**d.get("game", {})),
-            settings=Settings(**{k: v for k, v in d.get("settings", {}).items() if k in Settings.__dataclass_fields__}),
+            settings=settings,
             markers=[Marker(**{k: v for k, v in m.items() if k in Marker.__dataclass_fields__}) for m in d.get("markers", [])],
             clips=[ClipEntry.from_dict(c) for c in d.get("clips", [])],
             stills=[StillEntry(**s) for s in d.get("stills", [])],

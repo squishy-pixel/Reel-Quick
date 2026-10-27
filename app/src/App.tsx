@@ -227,7 +227,7 @@ export default function App() {
             <header><h2>Save still at {tcOf(frame)}</h2></header>
             <div style={{ padding: 14 }}>
               <img src={`/api/frame/${frame}?width=640`} alt="" style={{ width: "100%", display: "block", marginBottom: 10 }} />
-              <div className="field"><label>File name</label><input ref={stillName} className="text" autoFocus defaultValue={`${[project.game.date, project.game.week, project.game.away && project.game.home ? `${project.game.away}v${project.game.home}` : ""].filter(Boolean).join("_")}_`} onKeyDown={(e) => { if (e.key === "Enter") saveStill(); }} /></div>
+              <div className="field"><label>File name</label><input ref={stillName} className="text" autoFocus defaultValue={`${[project.game.date, [project.game.week, project.game.away && project.game.home ? `${project.game.away}v${project.game.home}` : ""].filter(Boolean).join("-")].filter(Boolean).join("_")}_`} onKeyDown={(e) => { if (e.key === "Enter") saveStill(); }} /></div>
             </div>
             <footer><button className="btn primary" onClick={saveStill}>Save PNG</button><button className="btn" onClick={() => setDialog(null)}>Cancel</button></footer>
           </div>

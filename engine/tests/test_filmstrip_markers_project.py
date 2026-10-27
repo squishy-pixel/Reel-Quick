@@ -49,8 +49,10 @@ def test_eastern_log_maps_onto_pacific_timecode_by_default(info):
 
 def test_naming():
     g = GameInfo(date="251023", week="WK08", away="car", home="gb")
-    assert build_name(g, 7, "LowerThird", "Herbstreit pick") == "251023_WK08_CARvGB_07_LowerThird_Herbstreit-pick"
-    assert build_name(g, 7, "", "Al / Kirk: open?") == "251023_WK08_CARvGB_07_Al-Kirk-open"
+    assert build_name(g, 7, "LowerThird", "Herbstreit pick") == "251023_WK08-CARvGB_07_LowerThird_Herbstreit-pick"
+    assert build_name(g, 7, "Score", "late", camera="Jib") == "251023_WK08-CARvGB_07_Score_Jib_late"
+    assert g.tag == "WK08-CARvGB" and GameInfo(away="TB", home="DAL").tag == "TBvDAL"
+    assert build_name(g, 7, "", "Al / Kirk: open?") == "251023_WK08-CARvGB_07_Al-Kirk-open"
     assert slug('bad<>:"/\\|?*name') == "badname"
 
 
@@ -61,7 +63,7 @@ def test_project_round_trip(info, tmp_path):
     clip = proj.add_clip(100, 200, shell="LowerThird", desc="Herbie pick")
     proj.add_clip(10, 50, desc="share this", formats=["mp4"])
     proj.renumber()
-    assert [c.name for c in proj.clips] == ["261022_WK08_NEvCHI_01_share-this", "261022_WK08_NEvCHI_02_LowerThird_Herbie-pick"]
+    assert [c.name for c in proj.clips] == ["261022_WK08-NEvCHI_01_share-this", "261022_WK08-NEvCHI_02_LowerThird_Herbie-pick"]
     p = proj.save(tmp_path / "game.reelquick.json")
     again = Project.load(p)
     assert again.info == info

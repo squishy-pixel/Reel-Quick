@@ -5,7 +5,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-DEFAULT_PATTERN = "{date}_{week}_{matchup}_{seq:02d}_{shell}_{desc}"
+DEFAULT_PATTERN = "{date}_{game}_{seq:02d}_{shell}_{camera}_{desc}"
+OLD_PATTERNS = {"{date}_{week}_{matchup}_{seq:02d}_{shell}_{desc}"}
 
 _ILLEGAL = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
@@ -23,6 +24,11 @@ class GameInfo:
             return f"{self.away.upper()}v{self.home.upper()}"
         return (self.away or self.home).upper()
 
+    @property
+    def tag(self) -> str:
+        """Week and matchup as one unit, the way the office refers to a game: WK05-TBvDAL."""
+        return "-".join(x for x in (slug(self.week), self.matchup) if x)
+
 
 def slug(text: str) -> str:
     """Make a chunk safe for Windows, macOS and iPadOS file systems."""
@@ -37,6 +43,7 @@ def build_name(game: GameInfo, seq: int, shell: str = "", desc: str = "", patter
     fields = {
         "camera": slug(camera),
         "engine": slug(engine),
+        "game": slug(game.tag),
         "date": slug(game.date),
         "week": slug(game.week),
         "matchup": slug(game.matchup),

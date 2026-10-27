@@ -92,9 +92,9 @@ def test_vocab_round_trip(tmp_path):
 def test_engine_in_name_pattern():
     info = game_info()
     proj = Project(source="game.mxf", info=info, game=GameInfo("261008", "WK06", "TB", "DAL"))
-    proj.settings.name_pattern = "{date}_{week}_{matchup}_{seq:02d}_{shell}_{engine}_{desc}"
+    proj.settings.name_pattern = "{date}_{game}_{seq:02d}_{shell}_{engine}_{desc}"
     clip = proj.add_clip(10, 100, shell="Score", desc="late 3rd", engine="UE")
-    assert clip.name == "261008_WK06_TBvDAL_01_Score_UE_late-3rd"
+    assert clip.name == "261008_WK06-TBvDAL_01_Score_UE_late-3rd"
 
 
 def test_clip_prefill_from_nearest_marker_and_camera_in_name():
@@ -107,7 +107,7 @@ def test_clip_prefill_from_nearest_marker_and_camera_in_name():
     assert m is booth
     assert proj.nearest_marker(booth.frame - int(120 * fps), booth.frame - int(100 * fps)) is None
     clip = proj.add_clip(booth.frame + 100, booth.frame + 700, shell=m.shell, desc=m.description, camera=m.camera)
-    assert clip.name == "261008_WK06_TBvDAL_01_Booth"
-    proj.settings.name_pattern = "{date}_{week}_{matchup}_{seq:02d}_{shell}_{camera}_{desc}"
+    assert clip.name == "261008_WK06-TBvDAL_01_Booth_Booth"
+    proj.settings.name_pattern = "{date}_{game}_{seq:02d}_{shell}_{desc}"
     proj.renumber()
-    assert clip.name == "261008_WK06_TBvDAL_01_Booth_Booth"
+    assert clip.name == "261008_WK06-TBvDAL_01_Booth"

@@ -46,9 +46,9 @@ def test_clip_renders_every_format_and_a_still(info, tmp_path):
     clip.still_frame = 70
     done = proj.render_clip_outputs(clip, tmp_path / "out")
     assert set(done) == {"copy", "mp4", "still"}
-    assert done["copy"].endswith("261022_WK08_NEvCHI_01_LowerThird_Herbie-pick.mov")
-    assert done["mp4"].endswith("261022_WK08_NEvCHI_01_LowerThird_Herbie-pick.mp4")
-    assert done["still"].endswith("stills/261022_WK08_NEvCHI_01_LowerThird_Herbie-pick.png")
+    assert done["copy"].endswith("261022_WK08-NEvCHI_01_LowerThird_Herbie-pick.mov")
+    assert done["mp4"].endswith("261022_WK08-NEvCHI_01_LowerThird_Herbie-pick.mp4")
+    assert done["still"].endswith("stills/261022_WK08-NEvCHI_01_LowerThird_Herbie-pick.png")
     assert clip.rendered == done
     assert clip.representative_frame == 70
 
