@@ -23,7 +23,15 @@ audio layout as the real feed:
 - `still` saves any single frame as a named PNG, JPEG or TIFF, tone-mapped to SDR by default
 - `init` and `render` manage a project file with the clip list and batch render it
 
-Not yet built: the desktop UI (Electron), content detection, OCR naming, the iPad companion.
+**Phase 1 app: first cut.** `reelquick app` opens a window (WebView2 on
+Windows, WebKit on macOS) around the engine: filmstrip across the top with
+the log markers on it, player in the middle, clip list down the side, export
+panel with an overall bar and a bar per clip. Keyboard driven: JKL, I/O,
+Enter to add a clip, S for the still, [ ] between markers. The UI lives in
+`app/` (Vite + React) and builds into `engine/reelquick/ui`, which is
+committed, so running it needs nothing beyond Python and ffmpeg.
+
+Not yet built: content detection, OCR naming, the iPad companion, installers.
 
 ## Design decisions
 
@@ -120,7 +128,11 @@ git clone -b claude/tnf-clip-extraction-tool-d6mcix https://github.com/squishy-p
 cd Reel-Quick\engine
 uv sync --extra dev
 
-# every time, from Reel-Quick\engine
+# the app
+uv sync --extra dev --extra app
+uv run reelquick app --work D:\Work --open "F:\path\to\game.mxf"
+
+# command line, from Reel-Quick\engine
 uv run reelquick caps                          # what can this machine do (NVENC, tonemap...)
 uv run reelquick probe D:\Records\game.mxf
 uv run reelquick markers D:\Records\game.mxf log.csv
@@ -166,9 +178,20 @@ Three numbers decide the rest of the design:
 3. **iPad companion.** The same UI as a plain web page: load proxy and project
    from Files, mark on the plane, export the clip list, render on the PC.
 
+## Developing the UI
+
+```powershell
+cd app
+npm install
+npm run dev        # Vite dev server on :5173, proxying /api to a running `reelquick app --browser --port 8765`
+npm run build      # writes engine/reelquick/ui (commit it)
+```
+
 ## Layout
 
 ```
+app/              Vite + React UI (source)
+engine/reelquick/ui/   built UI, served by the engine
 engine/reelquick/
   timecode.py   drop-frame math, time-of-day parsing
   probe.py      ffprobe -> MediaInfo
@@ -185,6 +208,10 @@ engine/reelquick/
   cubelut.py    .cube reader, tetrahedral sampling, narrow-range baking
   lutcheck.py   HLG patch measurements for any SDR conversion
   bench.py      pipeline stage timings on a slice of the real file
+  jobs.py       background jobs with progress and cancel
+  workspace.py  per-game working folder and project session
+  server.py     local API for the app window
+  app.py        starts the API and opens the window
   cli.py        command line
 engine/tests/   pytest suite with synthetic MXF fixture
 ```

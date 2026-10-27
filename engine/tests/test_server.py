@@ -1,0 +1,124 @@
+import time
+
+import pytest
+from fastapi.testclient import TestClient
+
+from reelquick.server import create_app
+from reelquick.workspace import Session
+
+
+@pytest.fixture
+def client(tmp_path, synthetic_mxf):
+    app = create_app(Session(work_root=tmp_path / "work"))
+    with TestClient(app) as c:
+        r = c.post("/api/open", json={"path": str(synthetic_mxf)})
+        assert r.status_code == 200, r.text
+        yield c
+
+
+def _wait(client, job_id, timeout=120):
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        job = next(j for j in client.get("/api/jobs").json() if j["id"] == job_id)
+        if job["status"] in ("done", "failed", "cancelled"):
+            return job
+        time.sleep(0.2)
+    raise TimeoutError(job_id)
+
+
+def test_open_and_state(client):
+    s = client.get("/api/state").json()
+    assert s["project"]["info"]["is_intra"] is True
+    assert s["workspace"]["has_proxy"] is False and s["workspace"]["has_filmstrip"] is False
+    assert s["project"]["settings"]["log_offset_seconds"] == -10800
+    assert client.post("/api/open", json={"path": "/nope.mxf"}).status_code == 404
+
+
+def test_requires_open_file(tmp_path):
+    with TestClient(create_app(Session(work_root=tmp_path))) as c:
+        assert c.get("/api/state").json()["project"] is None
+        assert c.post("/api/clips", json={"in_frame": 0, "out_frame": 10}).status_code == 409
+
+
+def test_game_clips_and_naming(client):
+    client.put("/api/game", json={"date": "261008", "week": "WK06", "away": "TB", "home": "DAL"})
+    r = client.post("/api/clips", json={"in_frame": 100, "out_frame": 160, "shell": "LowerThird", "desc": "Herbie pick"})
+    assert r.status_code == 200
+    clip = r.json()["clip"]
+    assert clip["name"] == "261008_WK06_TBvDAL_01_LowerThird_Herbie-pick"
+    assert clip["formats"] == ["prores", "mp4"]
+    r2 = client.post("/api/clips", json={"in_frame": 10, "out_frame": 40, "desc": "earlier"})
+    names = [c["name"] for c in r2.json()["project"]["clips"]]
+    assert names[0].endswith("_01_earlier") and names[1].endswith("_02_LowerThird_Herbie-pick")
+    cid = clip["id"]
+    r3 = client.patch(f"/api/clips/{cid}", json={"still_frame": 120, "formats": ["copy"], "name": "custom-name"})
+    assert r3.json()["clip"]["name"] == "custom-name" and r3.json()["clip"]["still_frame"] == 120
+    assert client.patch(f"/api/clips/{cid}", json={"out_frame": 50}).status_code == 400
+    assert client.delete(f"/api/clips/{cid}").status_code == 200
+    assert len(client.get("/api/state").json()["project"]["clips"]) == 1
+
+
+def test_markers_import_uses_project_offset(client):
+    csv = "Time,Type,Shell,Description\n6:25:02 PM,AR,LowerThird,eastern log\n15:25:02,booth,,already pacific\n"
+    r = client.post("/api/markers/import", json={"csv": csv})
+    assert r.json()["added"] == 1 and len(r.json()["skipped"]) == 1
+    assert r.json()["project"]["markers"][0]["tc"] == "15:25:02;00"
+    r = client.post("/api/markers/import", json={"csv": csv, "offset_seconds": 0})
+    assert r.json()["added"] == 1 and r.json()["project"]["markers"][0]["description"] == "already pacific"
+    r = client.post("/api/markers", json={"frame": 30, "description": "by hand"})
+    assert r.json()["marker"]["source"] == "user"
+    assert len(r.json()["project"]["markers"]) == 2
+
+
+def test_filmstrip_proxy_render_jobs(client, tmp_path):
+    job = client.post("/api/jobs/filmstrip", json={"interval": 2, "width": 160, "workers": 2}).json()
+    assert _wait(client, job["id"])["status"] == "done"
+    idx = client.get("/api/filmstrip").json()
+    assert idx["count"] == 3
+    assert client.get(f"/strip/{idx['frames'][0]['file']}").status_code == 200
+
+    job = client.post("/api/jobs/proxy", json={"height": 360}).json()
+    done = _wait(client, job["id"])
+    assert done["status"] == "done", done
+    assert client.get("/api/state").json()["workspace"]["has_proxy"] is True
+    r = client.get("/media/proxy.mp4", headers={"Range": "bytes=0-99"})
+    assert r.status_code == 206 and len(r.content) == 100 and r.headers["Content-Range"].startswith("bytes 0-99/")
+    assert client.get("/media/proxy.mp4").status_code == 200
+
+    client.post("/api/clips", json={"in_frame": 60, "out_frame": 90, "desc": "one", "formats": ["copy", "mp4"]})
+    client.post("/api/clips", json={"in_frame": 200, "out_frame": 230, "desc": "two", "formats": ["copy"]})
+    seen = []
+    job = client.post("/api/jobs/render", json={}).json()
+    while True:
+        j = next(x for x in client.get("/api/jobs").json() if x["id"] == job["id"])
+        seen.append(j["progress"])
+        if j["status"] in ("done", "failed"):
+            break
+        time.sleep(0.1)
+    assert j["status"] == "done", j
+    assert j["result"]["rendered"] == 2 and j["result"]["failed"] == []
+    rows = {r["name"]: r for r in j["detail"]["clips"]}
+    assert all(r["status"] == "done" and r["progress"] == 1.0 for r in rows.values())
+    assert any(r["outputs"].get("still", "").endswith(".png") for r in rows.values())
+    assert seen == sorted(seen) and seen[-1] == 1.0
+    project = client.get("/api/state").json()["project"]
+    assert all(c["rendered"] for c in project["clips"])
+    name = project["clips"][0]["name"]
+    assert client.get(f"/clips/{name}.mov").status_code == 200
+    assert client.get("/clips/../project.reelquick.json").status_code == 404
+
+
+def test_manual_still_and_frame_image(client):
+    r = client.post("/api/stills", json={"frame": 5, "name": "fireworks-wide"})
+    assert r.status_code == 200 and r.json()["path"].endswith("fireworks-wide.png")
+    assert client.post("/api/stills", json={"frame": 99999, "name": "x"}).status_code == 400
+    r = client.get("/api/frame/10?width=320")
+    assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg"
+    assert client.get("/api/frame/99999").status_code == 404
+
+
+def test_fs_listing(client, tmp_path, synthetic_mxf):
+    r = client.get("/api/fs", params={"path": str(synthetic_mxf.parent)})
+    names = [e["name"] for e in r.json()["entries"]]
+    assert synthetic_mxf.name in names
+    assert client.get("/api/fs", params={"path": str(tmp_path / "missing")}).status_code == 404

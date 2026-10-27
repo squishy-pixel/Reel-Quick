@@ -9,16 +9,20 @@ description = "Engine for Reel Quick: find, mark and cut broadcast segments out 
 requires-python = ">=3.11"
 dependencies = [
     "click>=8.1",
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "httpx>=0.27"]
+app = ["pywebview>=5.0"]
 
 [project.scripts]
 reelquick = "reelquick.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["reelquick"]
+artifacts = ["reelquick/ui/**"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -128,6 +128,17 @@ def bench(src: str, seconds: float, at_: str | None, only: str | None, parallel:
         click.echo(r.line(info))
 
 
+@main.command("app")
+@click.option("--port", default=None, type=int, help="Port for the local API; default picks a free one.")
+@click.option("--browser", is_flag=True, help="Open in the default browser instead of the app window.")
+@click.option("--work", default=None, type=click.Path(file_okay=False), help="Folder for working files (default ~/Videos/ReelQuick).")
+@click.option("--open", "open_path", default=None, type=click.Path(exists=True, dir_okay=False), help="Open this file on launch.")
+def app_cmd(port, browser, work, open_path) -> None:
+    """Open the Reel Quick window."""
+    from .app import run_app
+    run_app(port=port, browser=browser, work_root=Path(work) if work else None, open_path=open_path)
+
+
 @main.command("lut-check")
 @click.argument("lut_file", type=click.Path(exists=True, dir_okay=False), required=False)
 def lut_check(lut_file) -> None:
