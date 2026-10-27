@@ -29,7 +29,7 @@ def test_markers_from_log(info):
         ",,,\n"
         "soon,,,bad time\n"
     )
-    res = import_log_csv(csv_text, info)
+    res = import_log_csv(csv_text, info, offset_seconds=0)
     assert [m.description for m in res.markers] == ["half second in", "Herbie pick", "Al and Kirk open"]
     assert res.markers[1].frame == 2 * 60 - 4       # 15:25:02;00 minus start 15:25:00;04
     assert res.markers[1].tc == "15:25:02;00"
@@ -42,6 +42,11 @@ def test_markers_offset_and_headerless(info):
     assert len(res.markers) == 1 and res.markers[0].tc == "15:25:02;00"
 
 
+def test_eastern_log_maps_onto_pacific_timecode_by_default(info):
+    res = import_log_csv("Time,Type,Shell,Description\n6:25:02 PM,AR,Shell,eastern clock\n", info)
+    assert len(res.markers) == 1 and res.markers[0].tc == "15:25:02;00"
+
+
 def test_naming():
     g = GameInfo(date="251023", week="WK08", away="car", home="gb")
     assert build_name(g, 7, "LowerThird", "Herbstreit pick") == "251023_WK08_CARvGB_07_LowerThird_Herbstreit-pick"
@@ -51,7 +56,7 @@ def test_naming():
 
 def test_project_round_trip(info, tmp_path):
     proj = Project(source=info.path, info=info, game=GameInfo("261022", "WK08", "NE", "CHI"))
-    res = import_log_csv("Time,Type,Shell,Description\n15:25:02,AR,LowerThird,Herbie pick\n", info)
+    res = import_log_csv("Time,Type,Shell,Description\n15:25:02,AR,LowerThird,Herbie pick\n", info, offset_seconds=0)
     proj.markers = res.markers
     clip = proj.add_clip(100, 200, shell="LowerThird", desc="Herbie pick")
     proj.add_clip(10, 50, desc="share this", formats=["mp4"])

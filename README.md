@@ -93,7 +93,8 @@ Four columns, header row optional:
 | 19:32:05 | AR | LowerThird | Herbstreit pick |
 | 7:41 PM | booth | | Al and Kirk open |
 
-Time is time of day on the truck clock. `19:32:05`, `7:32:05 PM`, `19:32`,
+Time is time of day on the truck clock, in Eastern. The recorder timecode is
+Pacific, so three hours are subtracted by default. `19:32:05`, `7:32:05 PM`, `19:32`,
 and `19:32:05;12` all parse.
 
 ## Running the engine (Windows, Mac, Linux)

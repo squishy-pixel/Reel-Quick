@@ -251,7 +251,8 @@ def still_cmd(src, out_dir, at, name, fmt, hdr, width, overwrite) -> None:
 @main.command()
 @click.argument("src", type=click.Path(exists=True, dir_okay=False))
 @click.argument("log_csv", type=click.Path(exists=True, dir_okay=False))
-@click.option("--offset", default=0.0, show_default=True, help="Seconds to add to log times (3600 per hour of time zone).")
+@click.option("--offset", default=-10800.0, show_default=True,
+              help="Seconds added to log times to reach file timecode. -10800 maps an Eastern log onto Pacific timecode.")
 @click.option("--json", "as_json", is_flag=True)
 def markers(src: str, log_csv: str, offset: float, as_json: bool) -> None:
     """Map a log CSV (Time, Type, Shell, Description) onto the file."""

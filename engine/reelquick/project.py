@@ -80,7 +80,7 @@ class Settings:
     name_pattern: str = DEFAULT_PATTERN
     default_head_seconds: float = 2.0
     default_tail_seconds: float = 2.0
-    log_offset_seconds: float = 0.0
+    log_offset_seconds: float = -3 * 3600     # Eastern log, Pacific timecode
     output_dir: str = ""
 
 

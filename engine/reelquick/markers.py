@@ -10,6 +10,9 @@ from pathlib import Path
 from .probe import MediaInfo
 from .timecode import day_frames, frames_to_tc, parse_time_of_day
 
+# The truck log is kept in Eastern time. The recorder's timecode clock is Pacific.
+DEFAULT_LOG_OFFSET_SECONDS = -3 * 3600
+
 TIME_HEADERS = {"time", "tod", "time of day", "timecode", "tc", "start", "time (local)"}
 TYPE_HEADERS = {"type", "kind", "category"}
 SHELL_HEADERS = {"shell", "viz shell", "vizrt shell", "template", "graphic"}
@@ -52,14 +55,16 @@ def _pick(header: list[str], names: set[str]) -> int | None:
 def import_log_csv(
     text_or_path: str | Path,
     info: MediaInfo,
-    offset_seconds: float = 0.0,
+    offset_seconds: float = DEFAULT_LOG_OFFSET_SECONDS,
 ) -> ImportResult:
     """Map each log row to a frame in the file.
 
-    The log clock and the file's timecode are both time of day. offset_seconds
-    corrects a log clock that runs ahead or behind the truck's timecode, or a
-    log kept in a different time zone (offset of 3600 per hour). Rows before
-    the file starts or after it ends are reported in skipped.
+    The log clock and the file's timecode are both time of day, in different
+    zones: offset_seconds is added to each log time to get file time. The
+    default of -10800 turns an Eastern log entry into the Pacific timecode the
+    recorder writes (19:32 ET -> 16:32 in the file). Add a few seconds either
+    way to calibrate against one known moment. Rows before the file starts or
+    after it ends are reported in skipped.
     """
     if isinstance(text_or_path, Path) or (isinstance(text_or_path, str) and "\n" not in text_or_path and Path(text_or_path).exists()):
         text = Path(text_or_path).read_text(encoding="utf-8-sig")
