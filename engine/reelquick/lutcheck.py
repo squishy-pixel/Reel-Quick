@@ -61,7 +61,17 @@ def _mean_luma(src: Path, vf: str) -> float:
                           capture_output=True, text=True)
     m = re.search(r"YAVG=([0-9.]+)", proc.stderr)
     if not m:
-        raise RuntimeError(proc.stderr.strip().splitlines()[-1] if proc.stderr.strip() else "no measurement")
+        lines = [l for l in proc.stderr.strip().splitlines() if l.strip()]
+        tail = "\n".join(lines[-10:]) if lines else "no output"
+        caps = capabilities()
+        raise RuntimeError(
+            f"ffmpeg could not run the conversion.\n"
+            f"ffmpeg: {caps.ffmpeg} ({caps.version})\n"
+            f"filters present: zscale={caps.has_filter('zscale')} tonemap={caps.has_filter('tonemap')} "
+            f"exposure={caps.has_filter('exposure')} lut3d={caps.has_filter('lut3d')} colorlevels={caps.has_filter('colorlevels')}\n"
+            f"filter: {vf}\n"
+            f"ffmpeg said:\n{tail}"
+        )
     return float(m.group(1))
 
 
