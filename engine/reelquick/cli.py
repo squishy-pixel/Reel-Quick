@@ -200,13 +200,17 @@ def filmstrip(src: str, out_dir: str, interval: float, width: int, workers: int,
 @click.option("--audio", default=None, help="Source tracks, 1-based, e.g. 1,2")
 @click.option("--cpu", is_flag=True, help="Encode on the CPU instead of NVENC.")
 @click.option("--hwdecode", is_flag=True, help="Decode on the GPU (CUDA). Measured slower than CPU decode on this footage.")
-def proxy(src: str, out: str, height: int, bitrate: str, hlg: bool, hevc: bool, audio: str | None, cpu: bool, hwdecode: bool) -> None:
+@click.option("--jobs", default=1, show_default=True, help="Encode this many segments at once, then join them.")
+def proxy(src: str, out: str, height: int, bitrate: str, hlg: bool, hevc: bool, audio: str | None, cpu: bool,
+          hwdecode: bool, jobs: int) -> None:
     """Render a browser-friendly MP4 of the whole program."""
     info = probe(src)
     settings = ProxySettings(height=height, bitrate=bitrate, sdr=not hlg, hevc=hevc,
-                             audio_tracks=_tracks(audio), prefer_gpu=not cpu, hw_decode=hwdecode)
+                             audio_tracks=_tracks(audio), prefer_gpu=not cpu, hw_decode=hwdecode, jobs=max(1, jobs))
     lut = active_lut()
     click.echo(f"SDR conversion: {Path(lut.path).name}" if lut else "SDR conversion: built-in")
+    if jobs > 1:
+        click.echo(f"rendering {jobs} segments at once, then joining")
     bar = _Bar("proxy")
     t0 = time.time()
     path = build_proxy(info, out, settings, on_progress=bar)
