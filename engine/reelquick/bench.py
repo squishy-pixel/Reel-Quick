@@ -23,9 +23,11 @@ class BenchResult:
 
     def line(self, info: MediaInfo) -> str:
         if self.fps is None:
-            first = (self.error or "failed").strip().splitlines()
-            why = first[-1] if first else "failed"
-            return f"{self.name:<34} failed: {why[:90]}"
+            lines = [l.strip() for l in (self.error or "failed").strip().splitlines() if l.strip()]
+            telling = [l for l in lines if not l.startswith(("Last message", "frame=", "[out#"))
+                       and "Nothing was written" not in l and "Conversion failed" not in l]
+            why = " | ".join(telling[-3:]) if telling else (lines[-1] if lines else "failed")
+            return f"{self.name:<34} failed: {why[:300]}"
         speed = self.fps / float(info.rate.fps)
         minutes = info.duration / speed / 60
         return f"{self.name:<34} {self.fps:7.1f} fps  {speed:5.1f}x realtime  whole file ~{minutes:5.0f} min"
@@ -111,13 +113,13 @@ def gpu_lut_pipelines(info: MediaInfo, seconds: float, at: float) -> list[tuple[
             "GPU LUT all on GPU: NVDEC -> vulkan -> libplacebo -> cuda -> NVENC",
             ["-init_hw_device", "cuda=cu", "-init_hw_device", "vulkan=vk@cu", "-filter_hw_device", "vk",
              *seek, "-hwaccel", "cuda", "-hwaccel_output_format", "cuda", "-i", src, *dur, "-map", v,
-             "-vf", f"hwmap=derive_device=vulkan,{gpu_lut_filter(baked, 'nv12')},hwmap=derive_device=cuda",
+             "-vf", f"hwupload,{gpu_lut_filter(baked, 'nv12')},hwmap=derive_device=cuda",
              *enc, *null]))
         rows.append((
             "GPU LUT: NVDEC -> vulkan -> libplacebo -> download -> NVENC",
             ["-init_hw_device", "cuda=cu", "-init_hw_device", "vulkan=vk@cu", "-filter_hw_device", "vk",
              *seek, "-hwaccel", "cuda", "-hwaccel_output_format", "cuda", "-i", src, *dur, "-map", v,
-             "-vf", f"hwmap=derive_device=vulkan,{gpu_lut_filter(baked, 'nv12')},hwdownload,format=nv12",
+             "-vf", f"hwupload,{gpu_lut_filter(baked, 'nv12')},hwdownload,format=nv12",
              *enc, *null]))
     return rows
 
