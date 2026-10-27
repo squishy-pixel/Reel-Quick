@@ -19,7 +19,8 @@ audio layout as the real feed:
 - `markers` maps the log CSV (Time, Type, Shell, Description) onto the file by time of day
 - `filmstrip` extracts a thumbnail every N seconds for a visual sweep of the whole show
 - `proxy` renders a browser-friendly SDR MP4 of the whole program (GPU encode when available)
-- `cut` renders one clip as stream copy, ProRes 422 HLG, or share MP4, frame accurate, with handles
+- `cut` renders one clip in any mix of stream copy, ProRes 422 HLG, and share MP4, frame accurate, with handles, plus a reference still
+- `still` saves any single frame as a named PNG, JPEG or TIFF, tone-mapped to SDR by default
 - `init` and `render` manage a project file with the clip list and batch render it
 
 Not yet built: the desktop UI (Electron), content detection, OCR naming, the iPad companion.
@@ -47,6 +48,14 @@ default so they look right on anyone's phone, with an HLG HEVC option.
 **Audio is lossless either way.** Broadcast MXFs carry 16 mono PCM tracks.
 The engine joins the chosen tracks (default 1 and 2) into one stereo PCM
 track for ProRes and copy outputs, AAC for MP4.
+
+**Every clip can go out in several formats at once.** The usual pair is
+ProRes 422 for the reels and a share MP4 for the designers. Each format in a
+clip's list renders from the same in and out, so the two never disagree.
+
+**Every clip has a representative still.** Default is the middle frame of the
+content, or pick one. It lands in `stills/` next to the clips with the same
+name as the clip. Any other frame can be saved with a hand-typed name.
 
 **The proxy doubles as the reference MP4.** One render, two uses: scrubbing in
 the app, and the plain copy of the show you keep anyway. Keyframe every second
@@ -98,7 +107,16 @@ reelquick probe D:\Records\game.mxf
 reelquick markers D:\Records\game.mxf log.csv
 reelquick filmstrip D:\Records\game.mxf D:\Work\game\strip --interval 2 --workers 8
 reelquick proxy D:\Records\game.mxf D:\Work\game\proxy.mp4
-reelquick cut D:\Records\game.mxf D:\Work\game\clips --in 19:32:05 --out 19:32:14 --format prores --name 261022_WK08_NEvCHI_01_LowerThird_Herbie-pick
+reelquick cut D:\Records\game.mxf D:\Work\game\clips --in 19:32:05 --out 19:32:14 --format prores --format mp4 --name 261022_WK08_NEvCHI_01_LowerThird_Herbie-pick
+reelquick still D:\Records\game.mxf D:\Work\game\clips\stills --at 19:32:09 --name 261022_WK08_NEvCHI_booth-wide
+```
+
+Output layout for one clip rendered as ProRes plus MP4:
+
+```
+clips\261022_WK08_NEvCHI_01_LowerThird_Herbie-pick.mov
+clips\261022_WK08_NEvCHI_01_LowerThird_Herbie-pick.mp4
+clips\stills\261022_WK08_NEvCHI_01_LowerThird_Herbie-pick.png
 ```
 
 Run the tests with `python -m pytest` inside `engine/`. They generate a short
@@ -136,6 +154,7 @@ engine/reelquick/
   filmstrip.py  thumbnail sweep
   proxy.py      whole-program MP4
   render.py     clip rendering (copy / prores / mp4)
+  stills.py     single-frame grabs
   markers.py    log CSV import
   naming.py     file name pattern
   project.py    project file (JSON)

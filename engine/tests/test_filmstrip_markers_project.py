@@ -54,7 +54,7 @@ def test_project_round_trip(info, tmp_path):
     res = import_log_csv("Time,Type,Shell,Description\n15:25:02,AR,LowerThird,Herbie pick\n", info)
     proj.markers = res.markers
     clip = proj.add_clip(100, 200, shell="LowerThird", desc="Herbie pick")
-    proj.add_clip(10, 50, desc="share this", fmt="mp4")
+    proj.add_clip(10, 50, desc="share this", formats=["mp4"])
     proj.renumber()
     assert [c.name for c in proj.clips] == ["261022_WK08_NEvCHI_01_share-this", "261022_WK08_NEvCHI_02_LowerThird_Herbie-pick"]
     p = proj.save(tmp_path / "game.reelquick.json")
@@ -63,4 +63,4 @@ def test_project_round_trip(info, tmp_path):
     assert again.clips[1].in_frame == 100 and again.markers[0].shell == "LowerThird"
     spec = again.clip_spec(again.clips[1])
     assert spec.fmt == OutputFormat.PRORES and spec.head_frames == 120 and spec.audio_tracks == (1, 2)
-    assert json.loads(p.read_text())["version"] == 1
+    assert json.loads(p.read_text())["version"] == 2

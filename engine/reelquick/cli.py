@@ -18,6 +18,7 @@ from .probe import probe
 from .project import Project
 from .proxy import ProxySettings, build_proxy
 from .render import ClipSpec, OutputFormat, render_clip
+from .stills import FORMATS as STILL_FORMATS, grab_still
 from .timecode import frames_to_tc, parse_time_of_day, tc_to_frames
 
 
@@ -151,35 +152,63 @@ def proxy(src: str, out: str, height: int, bitrate: str, hlg: bool, hevc: bool, 
 @click.option("--in", "in_", required=True, help="In point: time of day (19:32:05), timecode, or frame.")
 @click.option("--out", "out_", required=True, help="Out point, same forms as --in.")
 @click.option("--name", required=True)
-@click.option("--format", "fmt", type=click.Choice([f.value for f in OutputFormat]), default="prores", show_default=True)
+@click.option("--format", "fmts", type=click.Choice([f.value for f in OutputFormat]), multiple=True, default=["prores"],
+              show_default=True, help="Repeat for several outputs, e.g. --format prores --format mp4")
+@click.option("--still/--no-still", default=True, show_default=True, help="Also save a still from the middle of the clip.")
+@click.option("--still-at", default=None, help="Frame for the still instead of the middle (same forms as --in).")
 @click.option("--head", default=2.0, show_default=True, help="Seconds before in.")
 @click.option("--tail", default=2.0, show_default=True, help="Seconds after out.")
 @click.option("--audio", default=None, help="Source tracks, 1-based, e.g. 1,2")
 @click.option("--prores-profile", type=click.Choice(["proxy", "lt", "standard", "hq"]), default="standard", show_default=True)
 @click.option("--mp4-hdr", is_flag=True, help="Keep HLG in the MP4 instead of tone-mapping to SDR.")
 @click.option("--overwrite", is_flag=True)
-def cut(src, out_dir, in_, out_, name, fmt, head, tail, audio, prores_profile, mp4_hdr, overwrite) -> None:
-    """Render one clip."""
+def cut(src, out_dir, in_, out_, name, fmts, still, still_at, head, tail, audio, prores_profile, mp4_hdr, overwrite) -> None:
+    """Render one clip in one or more formats, plus a reference still."""
     info = probe(src)
     fps = float(info.rate.fps)
-    spec = ClipSpec(
-        in_frame=_parse_point(in_, info),
-        out_frame=_parse_point(out_, info),
-        name=name,
-        fmt=OutputFormat(fmt),
-        head_frames=round(head * fps),
-        tail_frames=round(tail * fps),
-        audio_tracks=_tracks(audio),
-        prores_profile=prores_profile,
-        mp4_sdr=not mp4_hdr,
-    )
-    bar = _Bar(name)
-    t0 = time.time()
+    in_frame, out_frame = _parse_point(in_, info), _parse_point(out_, info)
+    fmts = list(dict.fromkeys(fmts))
+    for fmt in fmts:
+        out_name = name + ("_src" if fmt == "copy" and "prores" in fmts else "")
+        spec = ClipSpec(
+            in_frame=in_frame, out_frame=out_frame, name=out_name, fmt=OutputFormat(fmt),
+            head_frames=round(head * fps), tail_frames=round(tail * fps),
+            audio_tracks=_tracks(audio), prores_profile=prores_profile, mp4_sdr=not mp4_hdr,
+        )
+        bar = _Bar(f"{out_name} [{fmt}]")
+        t0 = time.time()
+        try:
+            path = render_clip(info, spec, out_dir, on_progress=bar, overwrite=overwrite)
+        except FileExistsError as e:
+            raise click.ClickException(f"exists, use --overwrite: {e}")
+        click.echo(f"{path}  {Path(path).stat().st_size/1e6:.1f} MB in {time.time()-t0:.1f}s")
+    if still:
+        frame = _parse_point(still_at, info) if still_at else (in_frame + out_frame) // 2
+        try:
+            path = grab_still(info, frame, Path(out_dir) / "stills", name, overwrite=overwrite)
+        except FileExistsError as e:
+            raise click.ClickException(f"exists, use --overwrite: {e}")
+        click.echo(f"{path}  still at {frames_to_tc(info.start_frames + frame, info.rate, info.drop_frame)}")
+
+
+@main.command("still")
+@click.argument("src", type=click.Path(exists=True, dir_okay=False))
+@click.argument("out_dir", type=click.Path(file_okay=False))
+@click.option("--at", required=True, help="Frame to grab: time of day, timecode, or frame number.")
+@click.option("--name", required=True, help="File name without extension.")
+@click.option("--format", "fmt", type=click.Choice(sorted(STILL_FORMATS)), default="png", show_default=True)
+@click.option("--hdr", is_flag=True, help="16-bit PNG/TIFF with source color left alone instead of SDR tone-map.")
+@click.option("--width", default=None, type=int, help="Scale down to this width; default keeps full size.")
+@click.option("--overwrite", is_flag=True)
+def still_cmd(src, out_dir, at, name, fmt, hdr, width, overwrite) -> None:
+    """Save one frame as an image with a name of your choosing."""
+    info = probe(src)
+    frame = _parse_point(at, info)
     try:
-        path = render_clip(info, spec, out_dir, on_progress=bar, overwrite=overwrite)
+        path = grab_still(info, frame, out_dir, name, fmt, hdr, width, overwrite)
     except FileExistsError as e:
         raise click.ClickException(f"exists, use --overwrite: {e}")
-    click.echo(f"{path}  {Path(path).stat().st_size/1e6:.1f} MB in {time.time()-t0:.1f}s")
+    click.echo(f"{path}  {frames_to_tc(info.start_frames + frame, info.rate, info.drop_frame)}")
 
 
 @main.command()
@@ -226,16 +255,23 @@ def render_project(project_path: str, out_dir: str, overwrite: bool) -> None:
     proj = Project.load(project_path)
     failures = 0
     for clip in proj.clips:
-        spec = proj.clip_spec(clip)
         bar = _Bar(clip.name)
         try:
-            path = render_clip(proj.info, spec, out_dir, on_progress=bar, overwrite=overwrite)
-            clip.rendered = str(path)
-        except FileExistsError:
-            click.echo(f"skip (exists): {clip.name}")
+            done = proj.render_clip_outputs(clip, out_dir, on_progress=bar, overwrite=overwrite)
+            click.echo(f"{clip.name}: " + ", ".join(done))
+        except FileExistsError as e:
+            click.echo(f"skip (exists): {e}")
         except FfmpegError as e:
             failures += 1
             click.echo(f"FAILED {clip.name}: {e}", err=True)
+    for still in proj.stills:
+        try:
+            click.echo(str(proj.render_still(still, out_dir, overwrite=overwrite)))
+        except FileExistsError as e:
+            click.echo(f"skip (exists): {e}")
+        except FfmpegError as e:
+            failures += 1
+            click.echo(f"FAILED still {still.name}: {e}", err=True)
     proj.save(project_path)
     click.echo(f"done, {failures} failure(s)")
 
