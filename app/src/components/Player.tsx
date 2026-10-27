@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { MediaInfo } from "../api";
 import { framesToTc } from "../timecode";
+import { Tc } from "./Tc";
 
 export interface PlayerHandle {
   seek(frame: number): void;
@@ -85,8 +86,8 @@ export const Player = forwardRef<PlayerHandle, {
         ) : null}
         {showExact && <img className="frame" src={`/api/frame/${frame}?width=1280`} alt="" />}
         <div className="readout">
-          <span className="tc big">{tc}</span>
-          <span className="dim num">frame {frame.toLocaleString()}</span>
+          <Tc value={tc} className="big" />
+          <span className="dim num" style={{ minWidth: 120 }}>frame {frame.toLocaleString()}</span>
           {rate !== 0 && <span className="accent num">{rate > 0 ? `${rate}x` : `${rate}x`}</span>}
         </div>
         <div className="badge">{showExact ? "source frame" : proxyUrl ? "proxy" : "no video"}</div>

@@ -70,12 +70,22 @@ class ClipPatch(BaseModel):
     head_seconds: float | None = None
     tail_seconds: float | None = None
     still_frame: int | None = None
+    extra_stills: list[int] | None = None
     notes: str | None = None
 
 
 class StillBody(BaseModel):
     frame: int
     name: str
+
+
+class RevealBody(BaseModel):
+    path: str
+
+
+class AudioPreviewBody(BaseModel):
+    at_frame: int
+    seconds: float = 15.0
 
 
 class MarkerBody(BaseModel):
@@ -225,6 +235,23 @@ def create_app(session: Session | None = None) -> FastAPI:
     def fs(path: str | None = None):
         return _list_dir(path)
 
+    @app.post("/api/reveal")
+    def reveal(body: RevealBody):
+        """Open a folder (or a file's folder) in Explorer / Finder."""
+        import subprocess
+        import sys as _sys
+        p = Path(body.path)
+        if not p.exists():
+            p.mkdir(parents=True, exist_ok=True)
+        target = p if p.is_dir() else p.parent
+        if os.name == "nt":
+            os.startfile(str(target))  # type: ignore[attr-defined]
+        elif _sys.platform == "darwin":
+            subprocess.Popen(["open", str(target)])
+        else:
+            subprocess.Popen(["xdg-open", str(target)])
+        return {"ok": True, "path": str(target)}
+
     @app.post("/api/open")
     def open_file(body: OpenBody):
         try:
@@ -288,6 +315,8 @@ def create_app(session: Session | None = None) -> FastAPI:
                 raise HTTPException(400, "out must be after in")
             if clip.still_frame is not None:
                 clip.still_frame = max(clip.in_frame, min(clip.out_frame - 1, clip.still_frame))
+            clip.extra_stills = sorted({max(clip.in_frame, min(clip.out_frame - 1, f)) for f in clip.extra_stills
+                                        if f != clip.still_frame})
             if custom_name:
                 clip.notes = clip.notes or ""
                 clip.name = body.name            # a typed name is kept as typed
@@ -338,6 +367,37 @@ def create_app(session: Session | None = None) -> FastAPI:
             w.project.stills = [s for s in w.project.stills if s.id != still_id]
             w.save()
         return {"project": w.project.to_dict()}
+
+    @app.post("/api/audio-preview")
+    def audio_preview(body: AudioPreviewBody):
+        """One short MP3 per source audio track, so the right pair can be found by ear."""
+        w = ws()
+        info = w.project.info
+        out_dir = w.root / ".cache" / "audio"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        start = max(0, min(info.nb_frames - 1, body.at_frame))
+        from .timecode import frames_to_seconds
+        from .ffmpeg import fmt_seconds, run_ffmpeg
+        files = []
+        for n, a in enumerate(info.audio, start=1):
+            out = out_dir / f"track{n:02d}_{start}.mp3"
+            if not out.exists():
+                try:
+                    run_ffmpeg(["-ss", fmt_seconds(frames_to_seconds(start, info.rate)), "-i", info.path,
+                                "-t", fmt_seconds(body.seconds), "-map", f"0:{a.stream_index}", "-vn",
+                                "-c:a", "libmp3lame", "-b:a", "128k", str(out)])
+                except FfmpegError as e:
+                    raise HTTPException(500, f"track {n}: {e}")
+            files.append({"track": n, "url": f"/cache/audio/{out.name}", "channels": a.channels})
+        return {"tracks": files, "seconds": body.seconds}
+
+    @app.get("/cache/audio/{name}")
+    def cache_audio(name: str):
+        w = ws()
+        p = w.root / ".cache" / "audio" / Path(name).name
+        if not p.is_file():
+            raise HTTPException(404)
+        return FileResponse(p, media_type="audio/mpeg")
 
     # ---- markers ---------------------------------------------------------
 
@@ -535,13 +595,10 @@ def create_app(session: Session | None = None) -> FastAPI:
                             path = Path(str(e))
                         outputs[fmt] = str(path)
                     if body.stills:
-                        try:
-                            still = grab_still(project.info, c.representative_frame, out_dir / "stills", c.name,
-                                               project.settings.still_format, project.settings.still_hdr,
-                                               overwrite=body.overwrite)
-                        except FileExistsError as e:
-                            still = Path(str(e))
-                        outputs["still"] = str(still)
+                        stills = project.render_clip_stills(c, out_dir, body.overwrite)
+                        outputs["still"] = str(stills[0])
+                        if len(stills) > 1:
+                            outputs["extra_stills"] = [str(x) for x in stills[1:]]
                     with session.lock:
                         c.rendered.update(outputs)
                         w.save()

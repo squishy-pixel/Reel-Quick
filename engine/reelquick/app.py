@@ -65,8 +65,9 @@ def run_app(port: int | None = None, browser: bool = False, work_root: Path | No
                                           file_types=("Video (*.mxf;*.mov;*.mp4;*.mkv)", "All files (*.*)"))
             return r[0] if r else None
 
-        def pick_folder(self):
-            r = window.create_file_dialog(webview.FOLDER_DIALOG)
+        def pick_folder(self, start=None):
+            kwargs = {"directory": start} if start and Path(start).is_dir() else {}
+            r = window.create_file_dialog(webview.FOLDER_DIALOG, **kwargs)
             return r[0] if r else None
 
         def pick_csv(self):

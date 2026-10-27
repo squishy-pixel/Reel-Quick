@@ -58,7 +58,13 @@ class Workspace:
 
     @property
     def frames_dir(self) -> Path:
-        return self.root / "frames"
+        """Cache of exact-frame JPEGs for the viewer. Not a deliverable, hence hidden."""
+        legacy = self.root / "frames"
+        new = self.root / ".cache" / "frames"
+        if legacy.is_dir() and not new.exists():
+            new.parent.mkdir(parents=True, exist_ok=True)
+            legacy.rename(new)
+        return new
 
     def has_filmstrip(self) -> bool:
         return (self.strip_dir / INDEX_NAME).exists()

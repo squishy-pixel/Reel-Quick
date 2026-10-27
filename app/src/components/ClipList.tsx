@@ -2,8 +2,10 @@ import type { Clip, MediaInfo, Vocab } from "../api";
 import { durationText, framesToTc } from "../timecode";
 import { startFrames } from "./Player";
 
-const FORMATS: { key: string; label: string }[] = [
-  { key: "prores", label: "ProRes" }, { key: "mp4", label: "MP4" }, { key: "copy", label: "Copy" },
+const FORMATS: { key: string; label: string; title: string }[] = [
+  { key: "prores", label: "ProRes", title: "ProRes 422, 10-bit, HDR tags kept. The broadcast-quality file." },
+  { key: "mp4", label: "MP4", title: "H.264 share file, converted to SDR through the LUT." },
+  { key: "copy", label: "Original", title: "The source frames untouched, no re-encode, in a .mov. Frame accurate on this intra codec." },
 ];
 
 export function ClipList({ clips, info, selected, onSelect, onPatch, onDelete, onSeek, renderRows }: {
@@ -40,6 +42,8 @@ export function ClipList({ clips, info, selected, onSelect, onPatch, onDelete, o
                 <span className="dim num">{durationText(c.out_frame - c.in_frame, rate)}</span>
                 {c.engine && <span className="muted">{c.engine}</span>}
                 {c.camera && <span className="accent">{c.camera}</span>}
+                <span className={`stillbadge ${c.still_frame === null ? "none" : ""}`} title={c.still_frame === null ? "No still chosen; the middle frame will be used" : `Still at ${tc(c.still_frame)}${c.extra_stills?.length ? ` plus ${c.extra_stills.length} more` : ""}`}>
+                  {c.still_frame === null ? "no still" : `still${c.extra_stills?.length ? ` +${c.extra_stills.length}` : ""}`}</span>
                 {r?.status === "running" && <span className="accent num">{Math.round(r.progress * 100)}%</span>}
                 {r?.status === "failed" && <span style={{ color: "var(--red)" }}>failed</span>}
                 {rendered.length > 0 && !r && <span className="ok" title={rendered.join(", ")}>✓ {rendered.join(" ")}</span>}
@@ -47,7 +51,7 @@ export function ClipList({ clips, info, selected, onSelect, onPatch, onDelete, o
               <div className="chips" onClick={(e) => e.stopPropagation()}>
                 {FORMATS.map((f) => {
                   const on = c.formats.includes(f.key);
-                  return <span key={f.key} className={`chip ${on ? "on" : ""}`} onClick={() => {
+                  return <span key={f.key} className={`chip ${on ? "on" : ""}`} title={f.title} onClick={() => {
                     const next = on ? c.formats.filter((x) => x !== f.key) : [...c.formats, f.key];
                     if (next.length) onPatch(c.id, { formats: next });
                   }}>{f.label}</span>;

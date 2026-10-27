@@ -126,3 +126,20 @@ def test_fs_listing(client, tmp_path, synthetic_mxf):
     names = [e["name"] for e in r.json()["entries"]]
     assert synthetic_mxf.name in names
     assert client.get("/api/fs", params={"path": str(tmp_path / "missing")}).status_code == 404
+
+
+def test_extra_stills_and_audio_preview(client):
+    r = client.post("/api/clips", json={"in_frame": 60, "out_frame": 120, "desc": "multi", "formats": ["copy"]})
+    cid = r.json()["clip"]["id"]
+    r = client.patch(f"/api/clips/{cid}", json={"still_frame": 70, "extra_stills": [90, 70, 500]})
+    assert r.json()["clip"]["extra_stills"] == [90, 119]          # duplicate of the primary dropped, 500 clamped
+    job = client.post("/api/jobs/render", json={"clip_ids": [cid]}).json()
+    done = _wait(client, job["id"])
+    row = done["detail"]["clips"][0]
+    assert row["outputs"]["still"].endswith(".png") and len(row["outputs"]["extra_stills"]) == 2
+    assert row["outputs"]["extra_stills"][0].endswith("_02.png")
+    r = client.post("/api/audio-preview", json={"at_frame": 30, "seconds": 1})
+    assert r.status_code == 200 and len(r.json()["tracks"]) == 4
+    assert client.get(r.json()["tracks"][0]["url"]).status_code == 200
+    state = client.get("/api/state").json()
+    assert "/.cache/" not in state["workspace"]["clips_dir"]

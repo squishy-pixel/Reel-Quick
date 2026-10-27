@@ -44,6 +44,7 @@ class MediaInfo:
     color_space: str | None
     start_timecode: str | None
     audio: list[AudioTrack] = field(default_factory=list)
+    field_order: str = "progressive"
 
     @property
     def rate(self) -> FrameRate:
@@ -65,6 +66,10 @@ class MediaInfo:
     @property
     def nb_frames(self) -> int:
         return round(Fraction(self.duration) * self.rate.fps)
+
+    @property
+    def interlaced(self) -> bool:
+        return self.field_order not in ("progressive", "unknown", "", None)
 
     @property
     def is_hlg(self) -> bool:
@@ -179,4 +184,5 @@ def probe(path: str | Path, check_gop: bool = True) -> MediaInfo:
         color_space=video.get("color_space"),
         start_timecode=_find_timecode(fmt, streams),
         audio=audio,
+        field_order=video.get("field_order") or "progressive",
     )

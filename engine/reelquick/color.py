@@ -206,14 +206,20 @@ def builtin_sdr_filter(info: MediaInfo, caps: Capabilities, peak_nits: int = 100
     return "format=yuv420p"
 
 
+def deinterlace_prefix(info: MediaInfo) -> str:
+    """bwdif in front of anything that will be viewed progressive (proxy, thumbnails, share MP4)."""
+    return "bwdif=mode=send_frame," if info.interlaced else ""
+
+
 def sdr_filter(info: MediaInfo, caps: Capabilities, peak_nits: int = 1000) -> str:
-    """Filter chain that turns the source into BT.709 SDR 8-bit 4:2:0."""
+    """Filter chain that turns the source into BT.709 SDR 8-bit 4:2:0 progressive."""
+    pre = deinterlace_prefix(info)
     if not info.is_hdr:
-        return "format=yuv420p"
+        return pre + "format=yuv420p"
     lut = active_lut()
     if lut is not None:
-        return lut_filter(info, lut)
-    return builtin_sdr_filter(info, caps, peak_nits)
+        return pre + lut_filter(info, lut)
+    return pre + builtin_sdr_filter(info, caps, peak_nits)
 
 
 def thumbnail_filter(info: MediaInfo, caps: Capabilities, width: int) -> str:

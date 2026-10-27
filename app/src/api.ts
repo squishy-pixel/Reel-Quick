@@ -2,12 +2,12 @@ export interface AudioTrack { stream_index: number; channels: number; sample_rat
 export interface MediaInfo {
   path: string; size_bytes: number; duration: number; codec: string; profile: string; width: number; height: number;
   rate_num: number; rate_den: number; fps: number; nb_frames: number; is_intra: boolean; is_hlg: boolean; is_hdr: boolean;
-  start_timecode: string | null; drop_frame: boolean; audio: AudioTrack[]; color_transfer: string | null;
+  start_timecode: string | null; drop_frame: boolean; audio: AudioTrack[]; color_transfer: string | null; field_order: string;
 }
 export interface Marker { frame: number | null; tc: string; kind: string; shell: string; description: string; camera: string; engine: string; section: string; source: string; confidence: number; end_frame: number | null }
 export interface Clip {
   id: string; in_frame: number; out_frame: number; name: string; shell: string; desc: string; camera: string; engine: string; formats: string[];
-  head_seconds: number; tail_seconds: number; still_frame: number | null; rendered: Record<string, string>; notes: string;
+  head_seconds: number; tail_seconds: number; still_frame: number | null; extra_stills: number[]; rendered: Record<string, any>; notes: string;
 }
 export interface Still { id: string; frame: number; name: string; rendered: string | null }
 export interface Game { date: string; week: string; away: string; home: string }
@@ -61,8 +61,10 @@ export const api = {
   startProxy: (b: { height?: number; bitrate?: string }) => call<Job>("POST", "/api/jobs/proxy", b),
   startRender: (b: { clip_ids?: string[]; overwrite?: boolean }) => call<Job>("POST", "/api/jobs/render", b),
   cancelJob: (id: string) => call<{ ok: boolean }>("POST", `/api/jobs/${id}/cancel`),
+  reveal: (path: string) => call<{ ok: boolean }>("POST", "/api/reveal", { path }),
+  audioPreview: (at_frame: number, seconds = 15) => call<{ tracks: { track: number; url: string; channels: number }[] }>("POST", "/api/audio-preview", { at_frame, seconds }),
 };
 
 // Native dialogs when running inside the pywebview window.
-declare global { interface Window { pywebview?: { api: { pick_file(): Promise<string | null>; pick_folder(): Promise<string | null>; pick_csv(): Promise<string | null> } } } }
+declare global { interface Window { pywebview?: { api: { pick_file(): Promise<string | null>; pick_folder(start?: string): Promise<string | null>; pick_csv(): Promise<string | null> } } } }
 export const native = () => window.pywebview?.api ?? null;

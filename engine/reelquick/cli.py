@@ -11,7 +11,7 @@ import click
 
 from . import __version__
 from .color import Lut, active_lut, set_lut
-from .ffmpeg import FfmpegError, capabilities, encoder_works
+from .ffmpeg import FfmpegError, capabilities, encoder_works, fmt_seconds
 from . import bench as benchmod, lutcheck
 from .filmstrip import build_filmstrip
 from .markers import import_log_csv
@@ -137,6 +137,26 @@ def app_cmd(port, browser, work, open_path) -> None:
     """Open the Reel Quick window."""
     from .app import run_app
     run_app(port=port, browser=browser, work_root=Path(work) if work else None, open_path=open_path)
+
+
+@main.command("audio-preview")
+@click.argument("src", type=click.Path(exists=True, dir_okay=False))
+@click.argument("out_dir", type=click.Path(file_okay=False))
+@click.option("--at", "at_", default=None, help="Where to sample: time of day, timecode, or frame. Default one hour in.")
+@click.option("--seconds", default=20.0, show_default=True)
+def audio_preview(src, out_dir, at_, seconds) -> None:
+    """Write a short MP3 of every audio track so the dialog pair can be found by ear."""
+    from .ffmpeg import run_ffmpeg
+    from .timecode import frames_to_seconds
+    info = probe(src)
+    frame = _parse_point(at_, info) if at_ else min(info.nb_frames - 1, round(3600 * float(info.rate.fps)))
+    out = Path(out_dir); out.mkdir(parents=True, exist_ok=True)
+    for n, a in enumerate(info.audio, start=1):
+        path = out / f"track{n:02d}.mp3"
+        run_ffmpeg(["-ss", fmt_seconds(frames_to_seconds(frame, info.rate)), "-i", info.path, "-t", fmt_seconds(seconds),
+                    "-map", f"0:{a.stream_index}", "-vn", "-c:a", "libmp3lame", "-b:a", "128k", str(path)])
+        click.echo(f"{path}  ({a.channels}ch)")
+    click.echo(f"{len(info.audio)} tracks from {frames_to_tc(info.start_frames + frame, info.rate, info.drop_frame)}")
 
 
 @main.command("lut-check")

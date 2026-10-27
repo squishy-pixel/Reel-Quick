@@ -36,6 +36,7 @@ class ClipEntry:
     head_seconds: float = 2.0
     tail_seconds: float = 2.0
     still_frame: int | None = None          # representative frame; None means the middle of the content
+    extra_stills: list[int] = field(default_factory=list)   # more frames from this clip, numbered after the first
     rendered: dict = field(default_factory=dict)   # format -> path, plus "still" -> path
     notes: str = ""
 
@@ -181,11 +182,22 @@ class Project:
             spec.name = self.output_name(clip, fmt)
             path = render(self.info, spec, out_dir, on_progress=on_progress, overwrite=overwrite)
             done[fmt] = str(path)
-        still = grab_still(self.info, clip.representative_frame, Path(out_dir) / "stills", clip.name,
-                           self.settings.still_format, self.settings.still_hdr, overwrite=overwrite)
-        done["still"] = str(still)
+        done["still"] = str(self.render_clip_stills(clip, out_dir, overwrite)[0])
         clip.rendered.update(done)
         return done
+
+    def render_clip_stills(self, clip: ClipEntry, out_dir: str | Path, overwrite: bool = False) -> list[Path]:
+        """The clip's still as <name>.png, extras as <name>_02.png, _03.png ..."""
+        paths = []
+        frames = [clip.representative_frame] + [f for f in clip.extra_stills if f != clip.representative_frame]
+        for i, f in enumerate(frames):
+            name = clip.name if i == 0 else f"{clip.name}_{i + 1:02d}"
+            try:
+                paths.append(grab_still(self.info, f, Path(out_dir) / "stills", name, self.settings.still_format,
+                                        self.settings.still_hdr, overwrite=overwrite))
+            except FileExistsError as e:
+                paths.append(Path(str(e)))
+        return paths
 
     def render_still(self, still: StillEntry, out_dir: str | Path, overwrite: bool = False) -> Path:
         path = grab_still(self.info, still.frame, Path(out_dir) / "stills", still.name,

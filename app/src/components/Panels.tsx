@@ -2,12 +2,30 @@ import { useState } from "react";
 import type { AppState, Job, Marker, MediaInfo, Vocab } from "../api";
 import { clockText } from "../timecode";
 
-export function JobsPanel({ state, onFilmstrip, onProxy, onCancel }: {
+// Seconds of program per second of work, learned from finished jobs; defaults from the first real game.
+export function rateFor(kind: string): number {
+  try { const v = localStorage.getItem(`rq.rate.${kind}`); if (v) return Number(v); } catch { /* ignore */ }
+  return kind === "filmstrip" ? 68 : 8.6;
+}
+export function learnRate(job: Job, duration: number) {
+  if (job.status !== "done" || !job.elapsed || job.elapsed < 5) return;
+  try { localStorage.setItem(`rq.rate.${job.kind}`, String(duration / job.elapsed)); } catch { /* ignore */ }
+}
+export const estimate = (kind: string, duration: number) => clockText(duration / rateFor(kind));
+
+export function JobsPanel({ state, onFilmstrip, onProxy, onCancel, onAudioTracks, onAudioPreview }: {
   state: AppState; onFilmstrip: (force: boolean) => void; onProxy: (height: number) => void; onCancel: (id: string) => void;
+  onAudioTracks: (tracks: number[]) => void; onAudioPreview: () => void;
 }) {
   const latest = (kind: string) => [...state.jobs].reverse().find((j) => j.kind === kind);
   const ws = state.workspace!;
+  const duration = state.project!.info.duration;
   const [height, setHeight] = useState(1080);
+  const confirmThen = (kind: string, rebuild: boolean, extra: string, go: () => void) => {
+    if (!rebuild) { go(); return; }
+    if (confirm(`Rebuild the ${kind}? About ${estimate(kind, duration)} for this recording.\n${extra}`)) go();
+  };
+  const tracks = state.project!.settings.audio_tracks.join(",");
   const Row = ({ name, job, ready, readyText, actions }: { name: string; job?: Job; ready: boolean; readyText: string; actions: React.ReactNode }) => {
     const running = job?.status === "running";
     return (
@@ -31,10 +49,21 @@ export function JobsPanel({ state, onFilmstrip, onProxy, onCancel }: {
   return (
     <div className="panel">
       <div className="panel-head"><h2>Scan</h2><span className="dim" style={{ fontSize: 10 }}>{state.engine.lut ? `LUT ${state.engine.lut.name}` : "built-in SDR"}{state.engine.nvenc ? " · NVENC" : ""}</span></div>
-      <Row name="Filmstrip" job={fs} ready={ws.has_filmstrip} readyText="ready" actions={<button className="btn small" onClick={() => onFilmstrip(ws.has_filmstrip)}>{ws.has_filmstrip ? "Rebuild" : "Build"}</button>} />
-      <Row name="Proxy" job={px} ready={ws.has_proxy} readyText="ready" actions={<>
+      <Row name="Filmstrip" job={fs} ready={ws.has_filmstrip} readyText={`ready · rebuild ≈ ${estimate("filmstrip", duration)}`}
+        actions={<button className="btn small" title={`About ${estimate("filmstrip", duration)}`} onClick={() => confirmThen("filmstrip", ws.has_filmstrip, "Thumbnails are replaced as it goes; stopping keeps what is done.", () => onFilmstrip(ws.has_filmstrip))}>{ws.has_filmstrip ? "Rebuild" : `Build ≈ ${estimate("filmstrip", duration)}`}</button>} />
+      <Row name="Proxy" job={px} ready={ws.has_proxy} readyText={`ready · rebuild ≈ ${estimate("proxy", duration)}`} actions={<>
         <select className="text" style={{ padding: "2px 4px", fontSize: 10 }} value={height} onChange={(e) => setHeight(Number(e.target.value))}><option value={1080}>1080p</option><option value={720}>720p</option></select>
-        <button className="btn small" onClick={() => onProxy(height)}>{ws.has_proxy ? "Rebuild" : "Build"}</button></>} />
+        <button className="btn small" title={`About ${estimate("proxy", duration)}`} onClick={() => confirmThen("proxy", ws.has_proxy, "The current proxy stays in place until the new one has finished.", () => onProxy(height))}>{ws.has_proxy ? "Rebuild" : `Build ≈ ${estimate("proxy", duration)}`}</button></>} />
+      <div className="jobrow">
+        <span className="name">Audio</span>
+        <div className="status" style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <span className="dim">tracks</span>
+          <input className="text num" style={{ width: 64, padding: "2px 5px", fontSize: 11 }} defaultValue={tracks} key={tracks} title="Source tracks for the proxy and every clip, 1-based, e.g. 7,8"
+            onBlur={(e) => { const t = e.target.value.split(/[ ,]+/).map(Number).filter((n) => n > 0); if (t.length && t.join(",") !== tracks) onAudioTracks(t); }} />
+          <span className="dim">of {state.project!.info.audio.length}</span>
+        </div>
+        <button className="btn small" onClick={onAudioPreview} title="Hear a few seconds of every track at the playhead">Listen</button>
+      </div>
     </div>
   );
 }
@@ -91,9 +120,9 @@ export function MarkersPanel({ markers, info, onSeek, onImport, onDelete, onDele
   );
 }
 
-export function RenderPanel({ job, clipCount, selectedId, outDir, onRender, onRenderSelected, onCancel, onPickOut }: {
-  job?: Job; clipCount: number; selectedId: string | null; outDir: string;
-  onRender: () => void; onRenderSelected: () => void; onCancel: () => void; onPickOut: () => void;
+export function RenderPanel({ job, clipCount, missingStills, selectedId, outDir, onRender, onRenderSelected, onCancel, onPickOut, onReveal }: {
+  job?: Job; clipCount: number; missingStills: number; selectedId: string | null; outDir: string;
+  onRender: () => void; onRenderSelected: () => void; onCancel: () => void; onPickOut: () => void; onReveal: () => void;
 }) {
   const running = job?.status === "running";
   const rows: { id: string; name: string; status: string; progress: number; error?: string }[] = job?.detail?.clips ?? [];
@@ -113,17 +142,15 @@ export function RenderPanel({ job, clipCount, selectedId, outDir, onRender, onRe
             <div className="renderrows">
               {rows.map((r) => (
                 <div key={r.id} className="r" title={r.error ?? ""}>
-                  <div>
-                    <div className="n">{r.name}</div>
-                    <div className={`bar ${r.status === "done" ? "done" : r.status === "failed" ? "failed" : ""}`}><i style={{ width: `${(r.status === "done" ? 1 : r.progress) * 100}%` }} /></div>
-                  </div>
-                  <span className="num dim" style={{ textAlign: "right" }}>{r.status === "done" ? "✓" : r.status === "failed" ? "✕" : r.status === "running" ? `${Math.round(r.progress * 100)}%` : "·"}</span>
+                  <div className="n"><span>{r.name}</span><span className="num">{r.status === "done" ? "✓" : r.status === "failed" ? "✕" : r.status === "running" ? `${Math.round(r.progress * 100)}%` : "·"}</span></div>
+                  <div className={`bar ${r.status === "done" ? "done" : r.status === "failed" ? "failed" : ""}`}><i style={{ width: `${(r.status === "done" ? 1 : r.progress) * 100}%` }} /></div>
                 </div>
               ))}
             </div>
           )}
         </>
       )}
+      {missingStills > 0 && !running && <div className="dim" style={{ fontSize: 11, marginTop: 8 }}><span className="accent">{missingStills}</span> clip{missingStills > 1 ? "s have" : " has"} no still chosen yet; the middle frame will be used.</div>}
       <div style={{ display: "flex", gap: 6, marginTop: 10, alignItems: "center" }}>
         {running ? <button className="btn danger" onClick={onCancel}>Cancel</button> : (
           <>
@@ -131,9 +158,11 @@ export function RenderPanel({ job, clipCount, selectedId, outDir, onRender, onRe
             <button className="btn" disabled={!selectedId} onClick={onRenderSelected}>Selected</button>
           </>
         )}
-        <span className="dim" style={{ flex: 1, minWidth: 0, fontSize: 10, textAlign: "right", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", direction: "rtl" }} title={outDir}>{outDir}</span>
-        <button className="btn small" onClick={onPickOut} title="Choose the output folder">…</button>
+        <span className="spacer" style={{ flex: 1 }} />
+        <button className="btn small" onClick={onReveal} title={outDir}>Open folder</button>
+        <button className="btn small" onClick={onPickOut} title="Choose a different output folder">Folder…</button>
       </div>
+      <div className="dim" style={{ fontSize: 10, marginTop: 6, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", direction: "rtl", textAlign: "left" }} title={outDir}>{outDir}</div>
     </div>
   );
 }
@@ -162,6 +191,25 @@ export function ListsDialog({ vocab, onSave, onClose }: { vocab: Vocab; onSave: 
           <button className="btn primary" onClick={() => onSave({ shells: parse(draft.shells), cameras: parse(draft.cameras), engines: parse(draft.engines), segments: parse(draft.segments) })}>Save</button>
           <button className="btn" onClick={onClose}>Cancel</button>
         </footer>
+      </div>
+    </div>
+  );
+}
+
+
+export function AudioDialog({ tracks, tcLabel, onClose }: { tracks: { track: number; url: string; channels: number }[] | null; tcLabel: string; onClose: () => void }) {
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <div className="modal" style={{ width: 520, gridTemplateRows: "auto 1fr auto" }} onClick={(e) => e.stopPropagation()}>
+        <header><h2>Audio tracks at {tcLabel}</h2></header>
+        {tracks ? (
+          <div className="audiolist">
+            {tracks.map((t) => (
+              <div key={t.track} className="t"><span className="num">track {t.track} <span className="dim">{t.channels}ch</span></span><audio controls preload="none" src={t.url} /></div>
+            ))}
+          </div>
+        ) : <div className="dim" style={{ padding: 14 }}>Extracting a few seconds of each track…</div>}
+        <footer><span className="dim" style={{ flex: 1, fontSize: 11 }}>Type the dialog pair into the Audio field, e.g. 7,8. The proxy needs a rebuild to pick it up; clips use it straight away.</span><button className="btn" onClick={onClose}>Close</button></footer>
       </div>
     </div>
   );
