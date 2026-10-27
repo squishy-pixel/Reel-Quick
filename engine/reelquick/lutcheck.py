@@ -27,6 +27,7 @@ EXPECTED_WHITE = 235
 class PatchResult:
     label: str
     luma: dict[float, float]
+    error: str | None = None
 
     @property
     def white(self) -> float:
@@ -34,6 +35,8 @@ class PatchResult:
 
     @property
     def summary(self) -> str:
+        if self.error:
+            return f"{self.label:<12} FAILED\n{self.error}\n"
         cells = " ".join(f"{int(l*100):3d}%:{v:5.1f}" for l, v in self.luma.items())
         return f"{self.label:<12} {cells}"
 
@@ -56,13 +59,14 @@ def _patch(level: float, out: Path) -> Path:
 
 
 def _mean_luma(src: Path, vf: str) -> float:
-    proc = subprocess.run([ffmpeg_bin(), "-v", "info", "-y", "-i", str(src), "-vf",
+    proc = subprocess.run([ffmpeg_bin(), "-loglevel", "repeat+info", "-y", "-i", str(src), "-vf",
                            f"{vf},signalstats,metadata=print:key=lavfi.signalstats.YAVG", "-f", "null", "-"],
                           capture_output=True, text=True)
     m = re.search(r"YAVG=([0-9.]+)", proc.stderr)
     if not m:
-        lines = [l for l in proc.stderr.strip().splitlines() if l.strip()]
-        tail = "\n".join(lines[-10:]) if lines else "no output"
+        lines = [l for l in proc.stderr.strip().splitlines()
+                 if l.strip() and not l.startswith(("  lib", "  built", "  configuration", "ffmpeg version"))]
+        tail = "\n".join(lines[-40:]) if lines else "no output"
         caps = capabilities()
         raise RuntimeError(
             f"ffmpeg could not run the conversion.\n"
@@ -81,7 +85,10 @@ def measure(vf: str, label: str, workdir: Path) -> PatchResult:
         src = workdir / f"hlg_{lvl}.mkv"
         if not src.exists():
             _patch(lvl, src)
-        luma[lvl] = _mean_luma(src, vf)
+        try:
+            luma[lvl] = _mean_luma(src, vf)
+        except RuntimeError as e:
+            return PatchResult(label, luma, error=str(e))
     return PatchResult(label, luma)
 
 
@@ -100,7 +107,7 @@ def check(lut_path: str | None = None) -> list[PatchResult]:
 
 def recommend(results: list[PatchResult]) -> str | None:
     """Pick the LUT range whose 75% patch lands nearest SDR white, if a LUT was measured."""
-    luts = [r for r in results if r.label.startswith("lut ")]
+    luts = [r for r in results if r.label.startswith("lut ") and not r.error]
     if not luts:
         return None
     best = min(luts, key=lambda r: abs(r.white - EXPECTED_WHITE))
