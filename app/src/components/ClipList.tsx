@@ -38,6 +38,7 @@ export function ClipList({ clips, info, selected, onSelect, onPatch, onDelete, o
                 <span className="dim">→</span>
                 <span className="tc">{tc(c.out_frame)}</span>
                 <span className="dim num">{durationText(c.out_frame - c.in_frame, rate)}</span>
+                {c.camera && <span className="accent">{c.camera}</span>}
                 {r?.status === "running" && <span className="accent num">{Math.round(r.progress * 100)}%</span>}
                 {r?.status === "failed" && <span style={{ color: "var(--red)" }}>failed</span>}
                 {rendered.length > 0 && !r && <span className="ok" title={rendered.join(", ")}>✓ {rendered.join(" ")}</span>}
@@ -68,8 +69,11 @@ export function ClipEditor({ clip, info, frame, onPatch, onSeek, onSetStill }: {
   const tc = (f: number) => framesToTc(base + f, rate, info.drop_frame);
   return (
     <div className="clipedit">
-      <div className="row">
+      <div className="row3">
         <div className="field"><label>Shell</label><input className="text" defaultValue={clip.shell} key={`sh${clip.id}-${clip.shell}`} onBlur={(e) => e.target.value !== clip.shell && onPatch({ shell: e.target.value })} placeholder="Vizrt shell" /></div>
+        <div className="field"><label>Camera</label>
+          <input className="text" list="cameras" defaultValue={clip.camera} key={`c${clip.id}-${clip.camera}`} onBlur={(e) => e.target.value !== clip.camera && onPatch({ camera: e.target.value })} placeholder="Jib, SkyCam…" />
+          <datalist id="cameras">{["Jib", "SkyCam", "Drone", "Booth", "Scenic"].map((c) => <option key={c} value={c} />)}</datalist></div>
         <div className="field"><label>Description</label><input className="text" defaultValue={clip.desc} key={`d${clip.id}-${clip.desc}`} onBlur={(e) => e.target.value !== clip.desc && onPatch({ desc: e.target.value })} placeholder="What it is" /></div>
       </div>
       <div className="field"><label>File name</label><input className="text num" defaultValue={clip.name} key={`n${clip.id}-${clip.name}`} onBlur={(e) => e.target.value !== clip.name && onPatch({ name: e.target.value })} /></div>

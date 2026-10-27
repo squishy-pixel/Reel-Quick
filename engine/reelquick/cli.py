@@ -298,7 +298,7 @@ def still_cmd(src, out_dir, at, name, fmt, hdr, width, overwrite) -> None:
 @click.argument("src", type=click.Path(exists=True, dir_okay=False))
 @click.argument("log_csv", type=click.Path(exists=True, dir_okay=False))
 @click.option("--offset", default=-10800.0, show_default=True,
-              help="Seconds added to log times to reach file timecode. -10800 maps an Eastern log onto Pacific timecode.")
+              help="Seconds added to log times to reach file timecode: ET -10800, CT -7200, MT -3600, PT 0.")
 @click.option("--json", "as_json", is_flag=True)
 def markers(src: str, log_csv: str, offset: float, as_json: bool) -> None:
     """Map a log CSV (Time, Type, Shell, Description) onto the file."""
@@ -308,10 +308,14 @@ def markers(src: str, log_csv: str, offset: float, as_json: bool) -> None:
         click.echo(json.dumps({"markers": [m.to_dict() for m in res.markers], "skipped": res.skipped}, indent=1))
         return
     for m in res.markers:
-        click.echo(f"{m.tc}  frame {m.frame:>9}  {m.kind:<8} {m.shell:<16} {m.description}")
+        click.echo(f"{m.tc}  frame {m.frame:>9}  {m.section:<9} {m.shell:<18} {m.camera:<8} {m.description}")
+    for m in res.untimed:
+        click.echo(f"untimed   {m.section:<9} {m.shell:<18} {m.camera:<8} {m.description}")
     for s in res.skipped:
         click.echo(f"skipped: {s}", err=True)
-    click.echo(f"{len(res.markers)} markers, {len(res.skipped)} skipped")
+    if res.all_outside:
+        click.echo("every timed row fell outside the recording: check --offset (ET -10800, CT -7200, MT -3600, PT 0)", err=True)
+    click.echo(f"{len(res.markers)} markers, {len(res.untimed)} untimed, {len(res.skipped)} skipped")
 
 
 @main.command()

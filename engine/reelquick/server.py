@@ -50,8 +50,10 @@ class ClipBody(BaseModel):
     out_frame: int
     shell: str = ""
     desc: str = ""
+    camera: str = ""
     formats: list[str] | None = None
     name: str | None = None
+    prefill: bool = True            # take shell/camera/description from the nearest log marker
 
 
 class ClipPatch(BaseModel):
@@ -60,6 +62,7 @@ class ClipPatch(BaseModel):
     name: str | None = None
     shell: str | None = None
     desc: str | None = None
+    camera: str | None = None
     formats: list[str] | None = None
     head_seconds: float | None = None
     tail_seconds: float | None = None
@@ -77,6 +80,7 @@ class MarkerBody(BaseModel):
     kind: str = ""
     shell: str = ""
     description: str = ""
+    camera: str = ""
 
 
 class MarkersImportBody(BaseModel):
@@ -244,8 +248,13 @@ def create_app(session: Session | None = None) -> FastAPI:
     def add_clip(body: ClipBody):
         w = ws()
         with session.lock:
+            shell, desc, camera = body.shell, body.desc, body.camera
+            if body.prefill and not (shell or desc or camera):
+                m = w.project.nearest_marker(body.in_frame, body.out_frame)
+                if m is not None:
+                    shell, desc, camera = m.shell, m.description, m.camera
             try:
-                clip = w.project.add_clip(body.in_frame, body.out_frame, body.shell, body.desc, body.formats, body.name)
+                clip = w.project.add_clip(body.in_frame, body.out_frame, shell, desc, body.formats, body.name, camera)
             except ValueError as e:
                 raise HTTPException(400, str(e))
             w.project.renumber()
@@ -326,21 +335,22 @@ def create_app(session: Session | None = None) -> FastAPI:
         res = import_log_csv(body.csv, w.project.info, offset)
         with session.lock:
             if body.replace:
-                w.project.markers = [m for m in w.project.markers if m.source != "log"] + res.markers
+                w.project.markers = [m for m in w.project.markers if m.source != "log"] + res.markers + res.untimed
             else:
-                w.project.markers += res.markers
-            w.project.markers.sort(key=lambda m: m.frame)
+                w.project.markers += res.markers + res.untimed
+            w.project.markers.sort(key=lambda m: (m.frame is None, m.frame or 0))
             w.save()
-        return {"added": len(res.markers), "skipped": res.skipped, "columns": res.columns, "project": w.project.to_dict()}
+        return {"added": len(res.markers), "untimed": len(res.untimed), "skipped": res.skipped,
+                "all_outside": res.all_outside, "columns": res.columns, "project": w.project.to_dict()}
 
     @app.post("/api/markers")
     def add_marker(body: MarkerBody):
         w = ws()
         with session.lock:
             m = Marker(frame=body.frame, tc=w.project.tc(body.frame), kind=body.kind, shell=body.shell,
-                       description=body.description, source="user")
+                       description=body.description, camera=body.camera, source="user")
             w.project.markers.append(m)
-            w.project.markers.sort(key=lambda x: x.frame)
+            w.project.markers.sort(key=lambda x: (x.frame is None, x.frame or 0))
             w.save()
         return {"marker": m.to_dict(), "project": w.project.to_dict()}
 
@@ -349,6 +359,17 @@ def create_app(session: Session | None = None) -> FastAPI:
         w = ws()
         with session.lock:
             w.project.markers = [m for m in w.project.markers if m.frame != frame]
+            w.save()
+        return {"project": w.project.to_dict()}
+
+    @app.delete("/api/markers/untimed/{index}")
+    def delete_untimed(index: int):
+        w = ws()
+        with session.lock:
+            untimed = [m for m in w.project.markers if m.frame is None]
+            if not 0 <= index < len(untimed):
+                raise HTTPException(404)
+            w.project.markers.remove(untimed[index])
             w.save()
         return {"project": w.project.to_dict()}
 

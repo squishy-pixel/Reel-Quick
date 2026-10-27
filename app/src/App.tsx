@@ -77,17 +77,21 @@ export default function App() {
   }, [selectedClip, frame, run, say]);
   const importCsv = async () => {
     const n = native();
-    if (n) { const text = await n.pick_csv(); if (text) run(api.importMarkers(text), (r) => say(`${r.added} markers added${r.skipped.length ? `, ${r.skipped.length} rows skipped` : ""}`)); }
+    if (n) { const text = await n.pick_csv(); if (text) run(api.importMarkers(text), reportImport); }
     else csvInput.current?.click();
   };
   const onCsvFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]; if (!f) return;
-    f.text().then((text) => run(api.importMarkers(text), (r) => say(`${r.added} markers added${r.skipped.length ? `, ${r.skipped.length} rows skipped` : ""}`)));
+    f.text().then((text) => run(api.importMarkers(text), reportImport));
     e.target.value = "";
+  };
+  const reportImport = (r: { added: number; untimed: number; skipped: string[]; all_outside: boolean }) => {
+    if (r.all_outside) { say("Every row fell outside the recording. Check the log clock (ET / CT / MT / PT) and import again.", true); return; }
+    say(`${r.added} markers added${r.untimed ? `, ${r.untimed} without a time` : ""}${r.skipped.length ? `, ${r.skipped.length} rows skipped` : ""}`);
   };
   const nextMarker = (dir: 1 | -1) => {
     if (!project) return;
-    const ms = project.markers.map((m) => m.frame);
+    const ms = project.markers.filter((m) => m.frame !== null).map((m) => m.frame as number);
     const target = dir > 0 ? ms.find((f) => f > frame + 1) : [...ms].reverse().find((f) => f < frame - 1);
     if (target !== undefined) seek(target); else say(dir > 0 ? "No marker after this point" : "No marker before this point");
   };
@@ -196,7 +200,8 @@ export default function App() {
             <div>
               <JobsPanel state={state} onFilmstrip={(force) => run(api.startFilmstrip({ force }))} onProxy={(height) => run(api.startProxy({ height }))} onCancel={(id) => run(api.cancelJob(id))} />
               <MarkersPanel markers={project.markers} info={info!} onSeek={seek} onImport={importCsv} onDelete={(f) => run(api.deleteMarker(f))}
-                offset={project.settings.log_offset_seconds} onOffset={(s) => run(api.settings({ log_offset_seconds: s }), () => say("Offset saved; re-import the log to apply it"))} />
+                onDeleteUntimed={(i) => run(api.deleteUntimed(i))}
+                offset={project.settings.log_offset_seconds} onOffset={(s) => run(api.settings({ log_offset_seconds: s }), () => say("Log clock saved. Import the log again to apply it."))} />
               <div className="panel-head" style={{ padding: "10px 12px 0" }}><h2>Clips <span className="dim" style={{ letterSpacing: 0 }}>{project.clips.length}</span></h2>
                 {selectedClip && <button className="btn small" onClick={() => seek(selectedClip.in_frame)}>Go to in</button>}</div>
             </div>
@@ -212,7 +217,7 @@ export default function App() {
         ) : <div className="panel dim hatch" style={{ height: "100%" }} />}
       </div>
 
-      <input ref={csvInput} type="file" accept=".csv,.txt" style={{ display: "none" }} onChange={onCsvFile} />
+      <input ref={csvInput} type="file" accept=".csv,.tsv,.txt" style={{ display: "none" }} onChange={onCsvFile} />
       {dialog?.kind === "open" && <FileDialog title="Open a recording" onClose={() => setDialog(null)} onPick={(p) => { setDialog(null); run(api.open(p), () => { setIn(null); setOut(null); setSelected(null); setFrame(0); }); }} />}
       {dialog?.kind === "outdir" && <FileDialog title="Output folder for clips" dirsOnly start={ws?.clips_dir} onClose={() => setDialog(null)} onPick={(p) => { setDialog(null); run(api.settings({ output_dir: p })); }} />}
       {dialog?.kind === "still" && project && (

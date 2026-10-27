@@ -4,9 +4,9 @@ export interface MediaInfo {
   rate_num: number; rate_den: number; fps: number; nb_frames: number; is_intra: boolean; is_hlg: boolean; is_hdr: boolean;
   start_timecode: string | null; drop_frame: boolean; audio: AudioTrack[]; color_transfer: string | null;
 }
-export interface Marker { frame: number; tc: string; kind: string; shell: string; description: string; source: string; confidence: number; end_frame: number | null }
+export interface Marker { frame: number | null; tc: string; kind: string; shell: string; description: string; camera: string; section: string; source: string; confidence: number; end_frame: number | null }
 export interface Clip {
-  id: string; in_frame: number; out_frame: number; name: string; shell: string; desc: string; formats: string[];
+  id: string; in_frame: number; out_frame: number; name: string; shell: string; desc: string; camera: string; formats: string[];
   head_seconds: number; tail_seconds: number; still_frame: number | null; rendered: Record<string, string>; notes: string;
 }
 export interface Still { id: string; frame: number; name: string; rendered: string | null }
@@ -44,14 +44,15 @@ export const api = {
   fs: (path?: string) => call<{ path: string; parent: string | null; entries: { name: string; path: string; dir: boolean; size?: number }[] }>("GET", `/api/fs${path ? `?path=${encodeURIComponent(path)}` : ""}`),
   game: (g: Game) => call<AppState>("PUT", "/api/game", g),
   settings: (s: Partial<Settings>) => call<AppState>("PUT", "/api/settings", s),
-  addClip: (b: { in_frame: number; out_frame: number; shell?: string; desc?: string; formats?: string[] }) => call<{ clip: Clip; project: Project }>("POST", "/api/clips", b),
+  addClip: (b: { in_frame: number; out_frame: number; shell?: string; desc?: string; camera?: string; formats?: string[] }) => call<{ clip: Clip; project: Project }>("POST", "/api/clips", b),
   patchClip: (id: string, b: Partial<Clip>) => call<{ clip: Clip; project: Project }>("PATCH", `/api/clips/${id}`, b),
   deleteClip: (id: string) => call<{ project: Project }>("DELETE", `/api/clips/${id}`),
   addStill: (frame: number, name: string) => call<{ still: Still; path: string; project: Project }>("POST", "/api/stills", { frame, name }),
   deleteStill: (id: string) => call<{ project: Project }>("DELETE", `/api/stills/${id}`),
-  importMarkers: (csv: string, offset_seconds?: number) => call<{ added: number; skipped: string[]; project: Project }>("POST", "/api/markers/import", { csv, offset_seconds }),
+  importMarkers: (csv: string, offset_seconds?: number) => call<{ added: number; untimed: number; skipped: string[]; all_outside: boolean; project: Project }>("POST", "/api/markers/import", { csv, offset_seconds }),
   addMarker: (frame: number, description: string) => call<{ project: Project }>("POST", "/api/markers", { frame, description }),
   deleteMarker: (frame: number) => call<{ project: Project }>("DELETE", `/api/markers/${frame}`),
+  deleteUntimed: (index: number) => call<{ project: Project }>("DELETE", `/api/markers/untimed/${index}`),
   filmstrip: () => call<FilmstripIndex>("GET", "/api/filmstrip"),
   jobs: () => call<Job[]>("GET", "/api/jobs"),
   startFilmstrip: (b: { interval?: number; width?: number; force?: boolean }) => call<Job>("POST", "/api/jobs/filmstrip", b),

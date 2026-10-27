@@ -39,33 +39,53 @@ export function JobsPanel({ state, onFilmstrip, onProxy, onCancel }: {
   );
 }
 
-export function MarkersPanel({ markers, info, onSeek, onImport, onDelete, offset, onOffset }: {
+const ZONES: [string, number][] = [["ET", -10800], ["CT", -7200], ["MT", -3600], ["PT", 0]];
+
+export function MarkersPanel({ markers, info, onSeek, onImport, onDelete, onDeleteUntimed, offset, onOffset }: {
   markers: Marker[]; info: MediaInfo; onSeek: (f: number) => void; onImport: () => void; onDelete: (frame: number) => void;
-  offset: number; onOffset: (s: number) => void;
+  onDeleteUntimed: (index: number) => void; offset: number; onOffset: (s: number) => void;
 }) {
+  const timed = markers.filter((m) => m.frame !== null);
+  const untimed = markers.filter((m) => m.frame === null);
+  const zone = ZONES.find(([, o]) => o === offset)?.[0] ?? "custom";
   return (
     <div className="panel">
       <div className="panel-head">
-        <h2>Markers <span className="dim" style={{ letterSpacing: 0 }}>{markers.length}</span></h2>
+        <h2>Markers <span className="dim" style={{ letterSpacing: 0 }}>{timed.length}</span></h2>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <span className="dim" style={{ fontSize: 10 }}>log offset</span>
-          <input className="text num" style={{ width: 64, padding: "2px 5px", fontSize: 11 }} type="number" step="1" defaultValue={offset / 3600} key={offset}
-            onBlur={(e) => { const h = Number(e.target.value); if (h * 3600 !== offset) onOffset(h * 3600); }} title="Hours added to log times to reach file timecode (-3 for an Eastern log on Pacific timecode)" />
-          <span className="dim" style={{ fontSize: 10 }}>h</span>
-          <button className="btn small" onClick={onImport}>Import CSV</button>
+          <span className="dim" style={{ fontSize: 10 }} title="The clock the log was kept in. The recorder's timecode is Pacific.">log clock</span>
+          <select className="text" style={{ padding: "2px 4px", fontSize: 11 }} value={zone} onChange={(e) => { const z = ZONES.find(([k]) => k === e.target.value); if (z) onOffset(z[1]); }}>
+            {ZONES.map(([k]) => <option key={k} value={k}>{k}</option>)}
+            {zone === "custom" && <option value="custom">{offset / 3600}h</option>}
+          </select>
+          <button className="btn small" onClick={onImport}>Import log</button>
         </div>
       </div>
       <div className="markers">
-        {markers.length === 0 && <div className="dim" style={{ fontSize: 11 }}>Import the tech's log, or press <span className="kbd">M</span> to drop a marker at the playhead.</div>}
-        {markers.map((m) => (
-          <div key={`${m.frame}-${m.source}`} className="markerrow" onClick={() => onSeek(m.frame)}>
+        {markers.length === 0 && <div className="dim" style={{ fontSize: 11 }}>Import the tech's log (CSV or a paste from Sheets), or press <span className="kbd">M</span> to drop a marker at the playhead.</div>}
+        {timed.map((m) => (
+          <div key={`${m.frame}-${m.source}`} className="markerrow" onClick={() => onSeek(m.frame!)}>
             <span className="tc">{m.tc}</span>
             <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-              {m.kind && <span className="accent" style={{ marginRight: 6 }}>{m.kind}</span>}{m.shell && <span className="muted" style={{ marginRight: 6 }}>{m.shell}</span>}{m.description}
+              {m.shell && <span style={{ marginRight: 6 }}>{m.shell}</span>}{m.camera && <span className="accent" style={{ marginRight: 6 }}>{m.camera}</span>}<span className="muted">{m.description}</span>
             </span>
-            <span className="del dim" onClick={(e) => { e.stopPropagation(); onDelete(m.frame); }}>✕</span>
+            <span className="del dim" onClick={(e) => { e.stopPropagation(); onDelete(m.frame!); }}>✕</span>
           </div>
         ))}
+        {untimed.length > 0 && (
+          <>
+            <div className="dim caps" style={{ fontSize: 9, letterSpacing: "0.16em", margin: "8px 0 2px" }}>Logged without a time, still to find</div>
+            {untimed.map((m, i) => (
+              <div key={`u${i}`} className="markerrow" style={{ cursor: "default" }}>
+                <span className="dim">{m.section || "—"}</span>
+                <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {m.shell && <span style={{ marginRight: 6 }}>{m.shell}</span>}{m.camera && <span className="accent" style={{ marginRight: 6 }}>{m.camera}</span>}<span className="muted">{m.description}</span>
+                </span>
+                <span className="del dim" onClick={() => onDeleteUntimed(i)} title="Found it, remove from the list">✕</span>
+              </div>
+            ))}
+          </>
+        )}
       </div>
     </div>
   );

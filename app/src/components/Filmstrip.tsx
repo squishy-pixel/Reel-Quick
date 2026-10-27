@@ -46,7 +46,7 @@ export function Filmstrip({ index, nbFrames, frame, markers, clips, inPoint, out
     g.fillStyle = "rgba(255,255,255,0.08)";
     g.fillRect(x((view.left / THUMB_W) * perThumb), 0, Math.max(2, x((view.width / THUMB_W) * perThumb)), h);
     for (const cl of clips) { g.fillStyle = "#FEB404"; g.fillRect(x(cl.in_frame), h - 6, Math.max(2, x(cl.out_frame) - x(cl.in_frame)), 5); }
-    for (const m of markers) { g.fillStyle = m.source === "user" ? "#F4F5F5" : "#FEB404"; g.fillRect(x(m.frame), 2, 1.5, h - 10); }
+    for (const m of markers) { if (m.frame === null) continue; g.fillStyle = m.source === "user" ? "#F4F5F5" : "#FEB404"; g.fillRect(x(m.frame), 2, 1.5, h - 10); }
     g.fillStyle = "#F4F5F5"; g.fillRect(x(frame) - 1, 0, 2, h);
   }, [frame, markers, clips, nbFrames, view, perThumb]);
 
@@ -65,9 +65,9 @@ export function Filmstrip({ index, nbFrames, frame, markers, clips, inPoint, out
               <img src={`/strip/${t.file}`} loading="lazy" alt="" />
             </div>
           ))}
-          {markers.filter((m) => px(m.frame) > view.left - 50 && px(m.frame) < view.left + view.width + 50).map((m) => (
-            <div key={`${m.frame}-${m.source}`} className={`marker ${m.source}`} style={{ left: px(m.frame) }}
-              data-label={`${m.tc}  ${[m.kind, m.shell, m.description].filter(Boolean).join(" · ")}`} onClick={() => onSeek(m.frame)} />
+          {markers.filter((m) => m.frame !== null && px(m.frame) > view.left - 50 && px(m.frame) < view.left + view.width + 50).map((m) => (
+            <div key={`${m.frame}-${m.source}`} className={`marker ${m.source}`} style={{ left: px(m.frame!) }}
+              data-label={`${m.tc}  ${[m.shell, m.camera, m.description].filter(Boolean).join(" · ")}`} onClick={() => onSeek(m.frame!)} />
           ))}
           {clips.map((c) => <div key={c.id} className="clipspan" style={{ left: px(c.in_frame), width: Math.max(2, px(c.out_frame) - px(c.in_frame)) }} />)}
           {inPoint !== null && <div className="inout" style={{ left: px(inPoint), width: Math.max(2, px((outPoint ?? frame)) - px(inPoint)) }} />}

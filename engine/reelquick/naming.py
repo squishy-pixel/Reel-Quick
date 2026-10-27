@@ -32,8 +32,10 @@ def slug(text: str) -> str:
     return text.strip("-._")
 
 
-def build_name(game: GameInfo, seq: int, shell: str = "", desc: str = "", pattern: str = DEFAULT_PATTERN) -> str:
+def build_name(game: GameInfo, seq: int, shell: str = "", desc: str = "", pattern: str = DEFAULT_PATTERN,
+               camera: str = "") -> str:
     fields = {
+        "camera": slug(camera),
         "date": slug(game.date),
         "week": slug(game.week),
         "matchup": slug(game.matchup),
