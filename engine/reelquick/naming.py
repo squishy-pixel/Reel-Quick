@@ -33,9 +33,10 @@ def slug(text: str) -> str:
 
 
 def build_name(game: GameInfo, seq: int, shell: str = "", desc: str = "", pattern: str = DEFAULT_PATTERN,
-               camera: str = "") -> str:
+               camera: str = "", engine: str = "") -> str:
     fields = {
         "camera": slug(camera),
+        "engine": slug(engine),
         "date": slug(game.date),
         "week": slug(game.week),
         "matchup": slug(game.matchup),

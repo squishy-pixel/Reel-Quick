@@ -27,6 +27,7 @@ from .proxy import ProxySettings, build_proxy
 from .render import render_clip
 from .stills import grab_still
 from .timecode import frames_to_tc
+from .vocab import load_vocab, save_vocab
 from .workspace import Session, default_work_root
 
 UI_DIR = Path(__file__).resolve().parent / "ui"
@@ -51,9 +52,10 @@ class ClipBody(BaseModel):
     shell: str = ""
     desc: str = ""
     camera: str = ""
+    engine: str = ""
     formats: list[str] | None = None
     name: str | None = None
-    prefill: bool = True            # take shell/camera/description from the nearest log marker
+    prefill: bool = True            # take shell/camera/engine/description from the nearest log marker
 
 
 class ClipPatch(BaseModel):
@@ -63,6 +65,7 @@ class ClipPatch(BaseModel):
     shell: str | None = None
     desc: str | None = None
     camera: str | None = None
+    engine: str | None = None
     formats: list[str] | None = None
     head_seconds: float | None = None
     tail_seconds: float | None = None
@@ -81,6 +84,7 @@ class MarkerBody(BaseModel):
     shell: str = ""
     description: str = ""
     camera: str = ""
+    engine: str = ""
 
 
 class MarkersImportBody(BaseModel):
@@ -195,6 +199,7 @@ def create_app(session: Session | None = None) -> FastAPI:
             "project": w.project.to_dict() if w else None,
             "jobs": [j.to_dict() for j in jobs.list()],
             "work_root": str(session.work_root),
+            "vocab": load_vocab(session.work_root),
             "engine": {
                 "ffmpeg": caps.version.split()[0],
                 "nvenc": encoder_works("h264_nvenc") if caps.nvenc else False,
@@ -207,6 +212,14 @@ def create_app(session: Session | None = None) -> FastAPI:
     @app.get("/api/state")
     def get_state():
         return state()
+
+    @app.get("/api/vocab")
+    def get_vocab():
+        return load_vocab(session.work_root)
+
+    @app.put("/api/vocab")
+    def put_vocab(body: dict):
+        return save_vocab(session.work_root, body)
 
     @app.get("/api/fs")
     def fs(path: str | None = None):
@@ -248,13 +261,13 @@ def create_app(session: Session | None = None) -> FastAPI:
     def add_clip(body: ClipBody):
         w = ws()
         with session.lock:
-            shell, desc, camera = body.shell, body.desc, body.camera
-            if body.prefill and not (shell or desc or camera):
+            shell, desc, camera, engine = body.shell, body.desc, body.camera, body.engine
+            if body.prefill and not (shell or desc or camera or engine):
                 m = w.project.nearest_marker(body.in_frame, body.out_frame)
                 if m is not None:
-                    shell, desc, camera = m.shell, m.description, m.camera
+                    shell, desc, camera, engine = m.shell, m.description, m.camera, m.engine
             try:
-                clip = w.project.add_clip(body.in_frame, body.out_frame, shell, desc, body.formats, body.name, camera)
+                clip = w.project.add_clip(body.in_frame, body.out_frame, shell, desc, body.formats, body.name, camera, engine)
             except ValueError as e:
                 raise HTTPException(400, str(e))
             w.project.renumber()
@@ -348,7 +361,7 @@ def create_app(session: Session | None = None) -> FastAPI:
         w = ws()
         with session.lock:
             m = Marker(frame=body.frame, tc=w.project.tc(body.frame), kind=body.kind, shell=body.shell,
-                       description=body.description, camera=body.camera, source="user")
+                       description=body.description, camera=body.camera, engine=body.engine, source="user")
             w.project.markers.append(m)
             w.project.markers.sort(key=lambda x: (x.frame is None, x.frame or 0))
             w.save()

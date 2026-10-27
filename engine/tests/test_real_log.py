@@ -59,12 +59,12 @@ def test_wrong_zone_is_flagged():
     assert res_far.all_outside and len(res_far.skipped) == 9
 
 
-NEW_SHEET = """Time,Segment,Shell,Camera,Notes,Zone,Aired
-18:03:12,Pregame,NFC Standings,Jib,,CT,Yes
-19:08:40,1st Half,Booth,Booth,Al and Kirk open,,Yes
-19:30:00,1st Half,Wingstop,Jib,killed for a flag,,No
-,Halftime,Score,Drone,,,
-21:37:05,2nd Half,Quarters,Drone,End of third,,Yes
+NEW_SHEET = """Time,Zone,Segment,Shell,Engine,Camera,Notes,Aired
+18:03:12,CT,Pregame,NFC Standings,Vizrt,Jib,,Yes
+19:08:40,,1st Half,Booth,,Booth,Al and Kirk open,Yes
+19:30:00,,1st Half,Wingstop,viz,Jib,killed for a flag,No
+,,Halftime,Score,Unreal,Drone,,
+21:37:05,,2nd Half,Quarters,UE,Drone,End of third,Yes
 """
 
 
@@ -74,8 +74,27 @@ def test_new_sheet_layout_declares_zone_segment_and_aired():
     assert [m.shell for m in res.markers] == ["NFC Standings", "Booth", "Quarters"]
     assert res.markers[0].tc == "16:03:12;00" and res.markers[0].section == "PREGAME"
     assert res.markers[1].description == "Al and Kirk open" and res.markers[1].section == "1ST HALF"
-    assert res.untimed[0].shell == "Score" and res.untimed[0].section == "HALFTIME"
+    assert res.untimed[0].shell == "Score" and res.untimed[0].section == "HALFTIME" and res.untimed[0].engine == "UE"
+    assert res.markers[0].engine == "Vizrt" and res.markers[2].engine == "UE" and res.markers[1].engine == ""
     assert any("not aired" in s for s in res.skipped)
+
+
+def test_vocab_round_trip(tmp_path):
+    from reelquick.vocab import DEFAULT_VOCAB, load_vocab, save_vocab
+    v = load_vocab(tmp_path)
+    assert v["shells"] == DEFAULT_VOCAB["shells"] and "UE" in v["engines"]
+    saved = save_vocab(tmp_path, {"shells": [" Player Card", "player card", "New Shell "], "bogus": ["x"]})
+    assert saved["shells"] == ["Player Card", "New Shell"] and "bogus" not in saved
+    assert load_vocab(tmp_path)["shells"] == ["Player Card", "New Shell"]
+    assert load_vocab(tmp_path)["cameras"] == DEFAULT_VOCAB["cameras"]
+
+
+def test_engine_in_name_pattern():
+    info = game_info()
+    proj = Project(source="game.mxf", info=info, game=GameInfo("261008", "WK06", "TB", "DAL"))
+    proj.settings.name_pattern = "{date}_{week}_{matchup}_{seq:02d}_{shell}_{engine}_{desc}"
+    clip = proj.add_clip(10, 100, shell="Score", desc="late 3rd", engine="UE")
+    assert clip.name == "261008_WK06_TBvDAL_01_Score_UE_late-3rd"
 
 
 def test_clip_prefill_from_nearest_marker_and_camera_in_name():

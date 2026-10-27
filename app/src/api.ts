@@ -4,9 +4,9 @@ export interface MediaInfo {
   rate_num: number; rate_den: number; fps: number; nb_frames: number; is_intra: boolean; is_hlg: boolean; is_hdr: boolean;
   start_timecode: string | null; drop_frame: boolean; audio: AudioTrack[]; color_transfer: string | null;
 }
-export interface Marker { frame: number | null; tc: string; kind: string; shell: string; description: string; camera: string; section: string; source: string; confidence: number; end_frame: number | null }
+export interface Marker { frame: number | null; tc: string; kind: string; shell: string; description: string; camera: string; engine: string; section: string; source: string; confidence: number; end_frame: number | null }
 export interface Clip {
-  id: string; in_frame: number; out_frame: number; name: string; shell: string; desc: string; camera: string; formats: string[];
+  id: string; in_frame: number; out_frame: number; name: string; shell: string; desc: string; camera: string; engine: string; formats: string[];
   head_seconds: number; tail_seconds: number; still_frame: number | null; rendered: Record<string, string>; notes: string;
 }
 export interface Still { id: string; frame: number; name: string; rendered: string | null }
@@ -22,8 +22,9 @@ export interface Job {
   progress: number; detail: any; error: string | null; started: number | null; finished: number | null; elapsed: number; eta: number | null; result: any;
 }
 export interface Workspace { source: string; root: string; project_path: string; has_filmstrip: boolean; has_proxy: boolean; proxy_url: string | null; clips_dir: string }
+export type Vocab = { shells: string[]; cameras: string[]; engines: string[]; segments: string[] };
 export interface AppState {
-  version: string; workspace: Workspace | null; project: Project | null; jobs: Job[]; work_root: string;
+  version: string; workspace: Workspace | null; project: Project | null; jobs: Job[]; work_root: string; vocab: Vocab;
   engine: { ffmpeg: string; nvenc: boolean; lut: { name: string; range: string } | null };
 }
 export interface FilmstripIndex { interval_frames: number; width: number; count: number; frames: { i: number; frame: number; seconds: number; tc: string; file: string }[] }
@@ -44,7 +45,8 @@ export const api = {
   fs: (path?: string) => call<{ path: string; parent: string | null; entries: { name: string; path: string; dir: boolean; size?: number }[] }>("GET", `/api/fs${path ? `?path=${encodeURIComponent(path)}` : ""}`),
   game: (g: Game) => call<AppState>("PUT", "/api/game", g),
   settings: (s: Partial<Settings>) => call<AppState>("PUT", "/api/settings", s),
-  addClip: (b: { in_frame: number; out_frame: number; shell?: string; desc?: string; camera?: string; formats?: string[] }) => call<{ clip: Clip; project: Project }>("POST", "/api/clips", b),
+  vocab: (v: Partial<Vocab>) => call<Vocab>("PUT", "/api/vocab", v),
+  addClip: (b: { in_frame: number; out_frame: number; shell?: string; desc?: string; camera?: string; engine?: string; formats?: string[] }) => call<{ clip: Clip; project: Project }>("POST", "/api/clips", b),
   patchClip: (id: string, b: Partial<Clip>) => call<{ clip: Clip; project: Project }>("PATCH", `/api/clips/${id}`, b),
   deleteClip: (id: string) => call<{ project: Project }>("DELETE", `/api/clips/${id}`),
   addStill: (frame: number, name: string) => call<{ still: Still; path: string; project: Project }>("POST", "/api/stills", { frame, name }),

@@ -1,9 +1,9 @@
-Time,Zone,Segment,Shell,Camera,Notes,Aired
-18:03:12,CT,Pregame,NFC Standings,Jib,,Yes
-18:23:40,,Pregame,Custom,Jib,Wingstop custom build,Yes
-19:08:05,,1st Half,Booth,Booth,Al and Kirk open,Yes
-19:10:30,,1st Half,Matchup,Drone,,Yes
-19:30:00,,1st Half,Wingstop,Jib,killed for a flag,No
-,,Halftime,Score,Drone,,Yes
-,,Halftime,Prime Stories,SkyCam,,Yes
-21:37:05,,2nd Half,Quarters,Drone,End of third,Yes
+Time,Zone,Segment,Shell,Engine,Camera,Notes,Aired
+18:03:12,CT,Pregame,Standings,Vizrt,Jib,NFC standings,Yes
+18:23:40,,Pregame,Custom,Vizrt,Jib,Wingstop custom build,Yes
+19:08:05,,1st Half,Booth,,Booth,Al and Kirk open,Yes
+19:10:30,,1st Half,Match-Up,UE,Drone,,Yes
+19:30:00,,1st Half,Wingstop,Vizrt,Jib,killed for a flag,No
+,,Halftime,Score,UE,Drone,,Yes
+,,Halftime,Prime Stories,Vizrt,SkyCam,,Yes
+21:37:05,,2nd Half,Score,Vizrt,Drone,End of third,Yes

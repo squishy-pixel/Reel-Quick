@@ -31,6 +31,7 @@ class ClipEntry:
     shell: str = ""
     desc: str = ""
     camera: str = ""
+    engine: str = ""
     formats: list[str] = field(default_factory=lambda: ["prores"])
     head_seconds: float = 2.0
     tail_seconds: float = 2.0
@@ -99,7 +100,8 @@ class Project:
     # ---- clips -------------------------------------------------------------
 
     def add_clip(self, in_frame: int, out_frame: int, shell: str = "", desc: str = "",
-                 formats: list[str] | None = None, name: str | None = None, camera: str = "") -> ClipEntry:
+                 formats: list[str] | None = None, name: str | None = None, camera: str = "",
+                 engine: str = "") -> ClipEntry:
         if out_frame <= in_frame:
             raise ValueError("out must be after in")
         seq = len(self.clips) + 1
@@ -110,11 +112,12 @@ class Project:
             shell=shell,
             desc=desc,
             camera=camera,
+            engine=engine,
             formats=list(formats or self.settings.default_formats),
             head_seconds=self.settings.default_head_seconds,
             tail_seconds=self.settings.default_tail_seconds,
         )
-        clip.name = name or build_name(self.game, seq, shell, desc, self.settings.name_pattern, camera)
+        clip.name = name or build_name(self.game, seq, shell, desc, self.settings.name_pattern, camera, engine)
         self.clips.append(clip)
         return clip
 
@@ -131,7 +134,7 @@ class Project:
         """Sort clips by in point and rebuild names that follow the pattern."""
         self.clips.sort(key=lambda c: c.in_frame)
         for seq, c in enumerate(self.clips, start=1):
-            c.name = build_name(self.game, seq, c.shell, c.desc, self.settings.name_pattern, c.camera)
+            c.name = build_name(self.game, seq, c.shell, c.desc, self.settings.name_pattern, c.camera, c.engine)
 
     def add_still(self, frame: int, name: str) -> StillEntry:
         """A still with a name typed by hand, not tied to a clip."""

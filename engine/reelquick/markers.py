@@ -35,7 +35,8 @@ TIME_HEADERS = {"time", "tod", "time of day", "timecode", "tc", "start", "time (
 GAMECLOCK_HEADERS = {"time of game", "game time", "game clock", "quarter", "period"}
 TYPE_HEADERS = {"type", "kind", "category"}
 SHELL_HEADERS = {"shell", "viz shell", "vizrt shell", "template", "graphic", "type of graphic", "name"}
-CAMERA_HEADERS = {"camera", "cam", "source"}
+CAMERA_HEADERS = {"camera", "cam"}
+ENGINE_HEADERS = {"engine", "source", "output", "renderer", "system", "main output"}
 SEGMENT_HEADERS = {"segment", "section", "part", "show segment", "show"}
 ZONE_HEADERS = {"zone", "time zone", "timezone", "tz", "log zone", "clock"}
 AIRED_HEADERS = {"aired", "on air", "air", "played", "status"}
@@ -53,6 +54,7 @@ class Marker:
     shell: str = ""
     description: str = ""
     camera: str = ""
+    engine: str = ""                # Vizrt | UE: which system rendered the main output
     section: str = ""
     source: str = "log"             # log | detect | user
     confidence: float = 1.0
@@ -63,7 +65,7 @@ class Marker:
 
     @property
     def label(self) -> str:
-        return " · ".join(x for x in (self.shell, self.camera, self.description) if x)
+        return " · ".join(x for x in (self.shell, self.engine, self.camera, self.description) if x)
 
 
 @dataclass
@@ -77,6 +79,17 @@ class ImportResult:
     def all_outside(self) -> bool:
         """Every timed row missed the recording: almost always a wrong time zone."""
         return not self.markers and any("outside the recording" in s for s in self.skipped)
+
+
+def _engine(text: str) -> str:
+    t = text.strip().lower()
+    if not t:
+        return ""
+    if t.startswith(("viz", "vz")):
+        return "Vizrt"
+    if t in ("ue", "ue5", "unreal", "unreal engine") or t.startswith("unreal"):
+        return "UE"
+    return text.strip()
 
 
 def _pick(header: list[str], names: set[str]) -> int | None:
@@ -135,6 +148,7 @@ def import_log_csv(
             "type": _pick(header, TYPE_HEADERS - {"type of graphic"}) if _pick(header, SHELL_HEADERS) != _pick(header, TYPE_HEADERS) else None,
             "shell": _pick(header, SHELL_HEADERS),
             "camera": _pick(header, CAMERA_HEADERS),
+            "engine": _pick(header, ENGINE_HEADERS),
             "description": _pick(header, DESC_HEADERS),
             "segment": _pick(header, SEGMENT_HEADERS),
             "zone": _pick(header, ZONE_HEADERS),
@@ -143,7 +157,7 @@ def import_log_csv(
         body = rows[1:]
     else:
         # No recognisable header: assume Time, Type, Shell, Description in order.
-        cols = {"time": 0, "gameclock": None, "type": 1, "shell": 2, "camera": None, "description": 3,
+        cols = {"time": 0, "gameclock": None, "type": 1, "shell": 2, "camera": None, "engine": None, "description": 3,
                 "segment": None, "zone": None, "aired": None}
         body = rows
     columns = {**cols, "header": has_header}
@@ -175,12 +189,13 @@ def import_log_csv(
             continue
         shell = cell(row, cols["shell"])
         camera = cell(row, cols["camera"])
+        engine = _engine(cell(row, cols["engine"]))
         kind = cell(row, cols["type"]) or CAMERA_KIND.get(camera.lower(), "")
         desc = " ".join(x for x in (cell(row, cols["gameclock"]), cell(row, cols["description"])) if x)
         t = cell(row, cols["time"])
         if not t:
             if shell or desc or camera:
-                untimed.append(Marker(None, "", kind, shell, desc, camera, section, confidence=0.0))
+                untimed.append(Marker(None, "", kind, shell, desc, camera, engine, section, confidence=0.0))
             continue
         try:
             tod = parse_time_of_day(t, rate, zone_offset if zone_offset is not None else offset_seconds)
@@ -193,6 +208,6 @@ def import_log_csv(
         if frame < 0 or frame >= total:
             skipped.append(f"row {n}: {t} is outside the recording")
             continue
-        markers.append(Marker(frame, frames_to_tc(start + frame, rate, info.drop_frame), kind, shell, desc, camera, section))
+        markers.append(Marker(frame, frames_to_tc(start + frame, rate, info.drop_frame), kind, shell, desc, camera, engine, section))
     markers.sort(key=lambda m: m.frame or 0)
     return ImportResult(markers, untimed, skipped, columns)

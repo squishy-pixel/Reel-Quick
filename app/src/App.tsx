@@ -3,10 +3,10 @@ import { api, native, type AppState, type Clip, type FilmstripIndex } from "./ap
 import { Filmstrip } from "./components/Filmstrip";
 import { Player, type PlayerHandle } from "./components/Player";
 import { ClipEditor, ClipList } from "./components/ClipList";
-import { JobsPanel, MarkersPanel, RenderPanel } from "./components/Panels";
+import { JobsPanel, ListsDialog, MarkersPanel, RenderPanel } from "./components/Panels";
 import { FileDialog } from "./components/FileDialog";
 
-type Dialog = null | { kind: "open" } | { kind: "outdir" } | { kind: "help" } | { kind: "still" };
+type Dialog = null | { kind: "open" } | { kind: "outdir" } | { kind: "help" } | { kind: "still" } | { kind: "lists" };
 
 export default function App() {
   const [state, setState] = useState<AppState | null>(null);
@@ -149,6 +149,7 @@ export default function App() {
           </>
         ) : <div className="file dim">No file open</div>}
         <button className="btn" onClick={openFile}>Open MXF</button>
+        <button className="btn small" onClick={() => setDialog({ kind: "lists" })} title="Edit the shell, camera, engine and segment lists">Lists</button>
         <button className="btn small" onClick={() => setDialog({ kind: "help" })} title="Keyboard shortcuts">?</button>
       </div>
 
@@ -207,7 +208,7 @@ export default function App() {
             </div>
             <ClipList clips={project.clips} info={info!} selected={selected} onSelect={setSelected} onPatch={patchClip} onDelete={deleteClip} onSeek={seek} renderRows={renderRows} />
             <div>
-              {selectedClip && <ClipEditor clip={selectedClip} info={info!} frame={frame} onPatch={(p) => patchClip(selectedClip.id, p)} onSeek={seek} onSetStill={setStill} />}
+              {selectedClip && <ClipEditor clip={selectedClip} info={info!} frame={frame} vocab={state.vocab} onPatch={(p) => patchClip(selectedClip.id, p)} onSeek={seek} onSetStill={setStill} />}
               <RenderPanel job={renderJob} clipCount={project.clips.length} selectedId={selected} outDir={ws!.clips_dir}
                 onRender={() => run(api.startRender({}))} onRenderSelected={() => selected && run(api.startRender({ clip_ids: [selected] }))}
                 onCancel={() => renderJob && run(api.cancelJob(renderJob.id))}
@@ -232,6 +233,7 @@ export default function App() {
           </div>
         </div>
       )}
+      {dialog?.kind === "lists" && <ListsDialog vocab={state.vocab} onClose={() => setDialog(null)} onSave={(v) => { setDialog(null); run(api.vocab(v), () => say("Lists saved")); }} />}
       {dialog?.kind === "help" && (
         <div className="modal-bg" onClick={() => setDialog(null)}>
           <div className="modal" style={{ width: 520, gridTemplateRows: "auto 1fr" }} onClick={(e) => e.stopPropagation()}>

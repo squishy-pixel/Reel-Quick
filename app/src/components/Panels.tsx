@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { AppState, Job, Marker, MediaInfo } from "../api";
+import type { AppState, Job, Marker, MediaInfo, Vocab } from "../api";
 import { clockText } from "../timecode";
 
 export function JobsPanel({ state, onFilmstrip, onProxy, onCancel }: {
@@ -67,7 +67,7 @@ export function MarkersPanel({ markers, info, onSeek, onImport, onDelete, onDele
           <div key={`${m.frame}-${m.source}`} className="markerrow" onClick={() => onSeek(m.frame!)}>
             <span className="tc">{m.tc}</span>
             <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-              {m.shell && <span style={{ marginRight: 6 }}>{m.shell}</span>}{m.camera && <span className="accent" style={{ marginRight: 6 }}>{m.camera}</span>}<span className="muted">{m.description}</span>
+              {m.shell && <span style={{ marginRight: 6 }}>{m.shell}</span>}{m.engine && <span className="dim" style={{ marginRight: 6 }}>{m.engine}</span>}{m.camera && <span className="accent" style={{ marginRight: 6 }}>{m.camera}</span>}<span className="muted">{m.description}</span>
             </span>
             <span className="del dim" onClick={(e) => { e.stopPropagation(); onDelete(m.frame!); }}>✕</span>
           </div>
@@ -133,6 +133,35 @@ export function RenderPanel({ job, clipCount, selectedId, outDir, onRender, onRe
         )}
         <span className="dim" style={{ flex: 1, minWidth: 0, fontSize: 10, textAlign: "right", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", direction: "rtl" }} title={outDir}>{outDir}</span>
         <button className="btn small" onClick={onPickOut} title="Choose the output folder">…</button>
+      </div>
+    </div>
+  );
+}
+
+
+export function ListsDialog({ vocab, onSave, onClose }: { vocab: Vocab; onSave: (v: Vocab) => void; onClose: () => void }) {
+  const [draft, setDraft] = useState<Record<keyof Vocab, string>>({
+    shells: vocab.shells.join("\n"), cameras: vocab.cameras.join("\n"), engines: vocab.engines.join("\n"), segments: vocab.segments.join("\n"),
+  });
+  const parse = (t: string) => t.split("\n").map((x) => x.trim()).filter(Boolean);
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <div className="modal" style={{ width: 820, gridTemplateRows: "auto 1fr auto" }} onClick={(e) => e.stopPropagation()}>
+        <header><h2>Lists</h2><span className="dim" style={{ fontSize: 11 }}>One per line. These fill the fields here and should match the sheet's dropdowns.</span></header>
+        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", gap: 10, padding: 14, minHeight: 0 }}>
+          {(["shells", "cameras", "engines", "segments"] as (keyof Vocab)[]).map((k) => (
+            <div key={k} className="field" style={{ minHeight: 0 }}>
+              <label>{k}</label>
+              <textarea className="text" style={{ height: 360, resize: "none", fontFamily: "var(--font)", background: "var(--off-black)", border: "1px solid var(--line)", padding: 6 }}
+                value={draft[k]} onChange={(e) => setDraft({ ...draft, [k]: e.target.value })} spellCheck={false} />
+            </div>
+          ))}
+        </div>
+        <footer>
+          <button className="btn" onClick={() => navigator.clipboard?.writeText(draft.shells).catch(() => {})} title="Copy the shell list to paste into the sheet's data validation">Copy shells</button>
+          <button className="btn primary" onClick={() => onSave({ shells: parse(draft.shells), cameras: parse(draft.cameras), engines: parse(draft.engines), segments: parse(draft.segments) })}>Save</button>
+          <button className="btn" onClick={onClose}>Cancel</button>
+        </footer>
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import type { Clip, MediaInfo } from "../api";
+import type { Clip, MediaInfo, Vocab } from "../api";
 import { durationText, framesToTc } from "../timecode";
 import { startFrames } from "./Player";
 
@@ -38,6 +38,7 @@ export function ClipList({ clips, info, selected, onSelect, onPatch, onDelete, o
                 <span className="dim">→</span>
                 <span className="tc">{tc(c.out_frame)}</span>
                 <span className="dim num">{durationText(c.out_frame - c.in_frame, rate)}</span>
+                {c.engine && <span className="muted">{c.engine}</span>}
                 {c.camera && <span className="accent">{c.camera}</span>}
                 {r?.status === "running" && <span className="accent num">{Math.round(r.progress * 100)}%</span>}
                 {r?.status === "failed" && <span style={{ color: "var(--red)" }}>failed</span>}
@@ -61,8 +62,8 @@ export function ClipList({ clips, info, selected, onSelect, onPatch, onDelete, o
   );
 }
 
-export function ClipEditor({ clip, info, frame, onPatch, onSeek, onSetStill }: {
-  clip: Clip; info: MediaInfo; frame: number; onPatch: (patch: Partial<Clip>) => void; onSeek: (f: number) => void; onSetStill: () => void;
+export function ClipEditor({ clip, info, frame, vocab, onPatch, onSeek, onSetStill }: {
+  clip: Clip; info: MediaInfo; frame: number; vocab: Vocab; onPatch: (patch: Partial<Clip>) => void; onSeek: (f: number) => void; onSetStill: () => void;
 }) {
   const rate = { num: info.rate_num, den: info.rate_den };
   const base = startFrames(info);
@@ -70,12 +71,18 @@ export function ClipEditor({ clip, info, frame, onPatch, onSeek, onSetStill }: {
   return (
     <div className="clipedit">
       <div className="row3">
-        <div className="field"><label>Shell</label><input className="text" defaultValue={clip.shell} key={`sh${clip.id}-${clip.shell}`} onBlur={(e) => e.target.value !== clip.shell && onPatch({ shell: e.target.value })} placeholder="Vizrt shell" /></div>
+        <div className="field"><label>Shell</label>
+          <input className="text" list="shells" defaultValue={clip.shell} key={`sh${clip.id}-${clip.shell}`} onBlur={(e) => e.target.value !== clip.shell && onPatch({ shell: e.target.value })} placeholder="Shell" />
+          <datalist id="shells">{vocab.shells.map((c) => <option key={c} value={c} />)}</datalist></div>
+        <div className="field"><label>Engine</label>
+          <select className="text" value={clip.engine} onChange={(e) => onPatch({ engine: e.target.value })}>
+            <option value="">—</option>{vocab.engines.map((c) => <option key={c} value={c}>{c}</option>)}{clip.engine && !vocab.engines.includes(clip.engine) && <option value={clip.engine}>{clip.engine}</option>}
+          </select></div>
         <div className="field"><label>Camera</label>
-          <input className="text" list="cameras" defaultValue={clip.camera} key={`c${clip.id}-${clip.camera}`} onBlur={(e) => e.target.value !== clip.camera && onPatch({ camera: e.target.value })} placeholder="Jib, SkyCam…" />
-          <datalist id="cameras">{["Jib", "SkyCam", "Drone", "Booth", "Scenic"].map((c) => <option key={c} value={c} />)}</datalist></div>
-        <div className="field"><label>Description</label><input className="text" defaultValue={clip.desc} key={`d${clip.id}-${clip.desc}`} onBlur={(e) => e.target.value !== clip.desc && onPatch({ desc: e.target.value })} placeholder="What it is" /></div>
+          <input className="text" list="cameras" defaultValue={clip.camera} key={`c${clip.id}-${clip.camera}`} onBlur={(e) => e.target.value !== clip.camera && onPatch({ camera: e.target.value })} placeholder="Camera" />
+          <datalist id="cameras">{vocab.cameras.map((c) => <option key={c} value={c} />)}</datalist></div>
       </div>
+      <div className="field"><label>Description</label><input className="text" defaultValue={clip.desc} key={`d${clip.id}-${clip.desc}`} onBlur={(e) => e.target.value !== clip.desc && onPatch({ desc: e.target.value })} placeholder="What it is" /></div>
       <div className="field"><label>File name</label><input className="text num" defaultValue={clip.name} key={`n${clip.id}-${clip.name}`} onBlur={(e) => e.target.value !== clip.name && onPatch({ name: e.target.value })} /></div>
       <div className="row3">
         <div className="field"><label>In</label>
