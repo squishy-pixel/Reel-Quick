@@ -105,7 +105,11 @@ def test_filmstrip_proxy_render_jobs(client, tmp_path):
     assert all(c["rendered"] for c in project["clips"])
     name = project["clips"][0]["name"]
     assert client.get(f"/clips/{name}.mov").status_code == 200
-    assert client.get("/clips/../project.reelquick.json").status_code == 404
+    # an encoded traversal reaches the clips route unnormalised and must be refused
+    r = client.get("/clips/..%2Fproject.reelquick.json")
+    assert r.status_code == 404
+    r = client.get("/clips/%2E%2E/project.reelquick.json")
+    assert r.status_code == 404 or "application/json" not in r.headers.get("content-type", "")
 
 
 def test_manual_still_and_frame_image(client):
