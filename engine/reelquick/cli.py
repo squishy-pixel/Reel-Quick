@@ -190,12 +190,15 @@ def filmstrip(src: str, out_dir: str, interval: float, width: int, workers: int,
 @click.option("--hlg", is_flag=True, help="Keep HDR instead of tone-mapping to SDR.")
 @click.option("--hevc", is_flag=True, help="HEVC instead of H.264 (smaller, plays in fewer places).")
 @click.option("--audio", default=None, help="Source tracks, 1-based, e.g. 1,2")
-@click.option("--cpu", is_flag=True, help="Do not use the GPU.")
-def proxy(src: str, out: str, height: int, bitrate: str, hlg: bool, hevc: bool, audio: str | None, cpu: bool) -> None:
+@click.option("--cpu", is_flag=True, help="Encode on the CPU instead of NVENC.")
+@click.option("--hwdecode", is_flag=True, help="Decode on the GPU (CUDA). Measured slower than CPU decode on this footage.")
+def proxy(src: str, out: str, height: int, bitrate: str, hlg: bool, hevc: bool, audio: str | None, cpu: bool, hwdecode: bool) -> None:
     """Render a browser-friendly MP4 of the whole program."""
     info = probe(src)
     settings = ProxySettings(height=height, bitrate=bitrate, sdr=not hlg, hevc=hevc,
-                             audio_tracks=_tracks(audio), prefer_gpu=not cpu)
+                             audio_tracks=_tracks(audio), prefer_gpu=not cpu, hw_decode=hwdecode)
+    lut = active_lut()
+    click.echo(f"SDR conversion: {Path(lut.path).name}" if lut else "SDR conversion: built-in")
     bar = _Bar("proxy")
     t0 = time.time()
     path = build_proxy(info, out, settings, on_progress=bar)

@@ -60,11 +60,16 @@ def pipelines(info: MediaInfo, seconds: float, at: float) -> list[tuple[str, lis
     runs += [
         (f"CPU decode + {lut_name} 1080p", [*seek, "-i", src, *dur, "-map", v, "-vf", sdr, *null]),
         (f"CPU decode + {lut_name} 720p", [*seek, "-i", src, *dur, "-map", v, "-vf", f"scale=-2:720,{sdr}", *null]),
-        (f"current proxy: {'CUDA' if cuda else 'CPU'} dec + {lut_name} + {enc_name}",
-         [*seek, *cuda, "-i", src, *dur, "-map", v, "-vf", sdr, *enc, *null]),
-        (f"proxy at 720p: {'CUDA' if cuda else 'CPU'} dec + {lut_name} + {enc_name}",
-         [*seek, *cuda, "-i", src, *dur, "-map", v, "-vf", f"scale=-2:720,{sdr}", *enc, *null]),
+        (f"CPU dec + {lut_name} + {enc_name} 1080p", [*seek, "-i", src, *dur, "-map", v, "-vf", sdr, *enc, *null]),
+        (f"CPU dec + {lut_name} + {enc_name} 720p",
+         [*seek, "-i", src, *dur, "-map", v, "-vf", f"scale=-2:720,{sdr}", *enc, *null]),
+        (f"CPU dec + {lut_name} + libx264 1080p",
+         [*seek, "-i", src, *dur, "-map", v, "-vf", sdr, "-c:v", "libx264", "-preset", "veryfast", "-crf", "21", *null]),
     ]
+    if cuda:
+        runs += [
+            (f"CUDA dec + {lut_name} + {enc_name} 1080p", [*seek, *cuda, "-i", src, *dur, "-map", v, "-vf", sdr, *enc, *null]),
+        ]
     if caps.has_filter("libplacebo"):
         placebo = ("libplacebo=w=1920:h=1080:colorspace=bt709:color_primaries=bt709:color_trc=bt709"
                    ":range=tv:format=yuv420p:tonemapping=auto")
@@ -82,11 +87,25 @@ def run_bench(info: MediaInfo, seconds: float = 30.0, at: float | None = None,
     for name, args in pipelines(info, seconds, at):
         if only and only.lower() not in name.lower():
             continue
-        t0 = time.time()
+        samples: list[tuple[float, int]] = []
+
+        def on_progress(frac: float, fields: dict) -> None:
+            f = fields.get("frame", "")
+            if f.isdigit():
+                samples.append((time.time(), int(f)))
+
         try:
-            run_ffmpeg(args)
-            dt = time.time() - t0
-            results.append(BenchResult(name, frames / dt if dt > 0 else None))
+            run_ffmpeg(args, duration=seconds, on_progress=on_progress)
         except FfmpegError as e:
             results.append(BenchResult(name, None, e.stderr or str(e)))
+            continue
+        # Steady-state rate between the first and last progress reports, which
+        # leaves out opening and seeking into a very large file.
+        if len(samples) >= 3 and samples[-1][0] > samples[0][0]:
+            (ta, fa), (tb, fb) = samples[0], samples[-1]
+            results.append(BenchResult(name, (fb - fa) / (tb - ta)))
+        elif samples:
+            results.append(BenchResult(name, None, "slice too short to measure; raise --seconds"))
+        else:
+            results.append(BenchResult(name, None, "no progress reported"))
     return results

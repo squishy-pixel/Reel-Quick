@@ -26,7 +26,8 @@ class ProxySettings:
     sdr: bool = True
     hevc: bool = False          # HEVC halves the size but plays in fewer places
     audio_tracks: tuple[int, ...] | None = None
-    prefer_gpu: bool = True
+    prefer_gpu: bool = True          # NVENC for encoding when it works
+    hw_decode: bool = False          # CUDA decode; off by default, it measured slower than CPU on 4:2:2 intra
     keyint_seconds: float = 1.0
 
 
@@ -96,7 +97,7 @@ def build_proxy(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     caps = capabilities()
     attempts = []
-    if settings.prefer_gpu and caps.cuda_decode and info.codec in ("h264", "hevc"):
+    if settings.hw_decode and caps.cuda_decode and info.codec in ("h264", "hevc"):
         attempts.append(True)
     attempts.append(False)
     last: FfmpegError | None = None
