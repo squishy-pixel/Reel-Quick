@@ -105,7 +105,9 @@ def caps() -> None:
 @click.option("--seconds", default=30.0, show_default=True, help="Length of the slice to time.")
 @click.option("--at", "at_", default=None, help="Where to take the slice: time of day, timecode, or frame. Default one hour in.")
 @click.option("--only", default=None, help="Run only pipelines whose name contains this text.")
-def bench(src: str, seconds: float, at_: str | None, only: str | None) -> None:
+@click.option("--parallel", default=None, help="Instead of the stage table, run N copies at once, e.g. --parallel 1,2,4,6")
+@click.option("--height", default=1080, show_default=True, help="Output height for the parallel runs.")
+def bench(src: str, seconds: float, at_: str | None, only: str | None, parallel: str | None, height: int) -> None:
     """Time each stage of the proxy pipeline on a slice of the file to find the bottleneck."""
     info = probe(src)
     at = None
@@ -115,6 +117,12 @@ def bench(src: str, seconds: float, at_: str | None, only: str | None) -> None:
     lut = active_lut()
     click.echo(f"ffmpeg {c.version.split()[0]}  nvenc={encoder_works('h264_nvenc')} cuda_decode={c.cuda_decode} "
                f"libplacebo={c.has_filter('libplacebo')}  lut={Path(lut.path).name if lut else None}")
+    if parallel:
+        import os
+        click.echo(f"cpu threads: {os.cpu_count()}; {seconds:.0f}s slices, whole-process timing (includes startup)\n")
+        for n in (int(x) for x in parallel.split(",") if x.strip()):
+            click.echo(benchmod.run_parallel_bench(info, n, seconds, at, height).line(info))
+        return
     click.echo(f"slice: {seconds:.0f}s starting {at if at is not None else 'one hour in'}; each row reads the same frames\n")
     for r in benchmod.run_bench(info, seconds, at, only):
         click.echo(r.line(info))

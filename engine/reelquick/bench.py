@@ -109,3 +109,42 @@ def run_bench(info: MediaInfo, seconds: float = 30.0, at: float | None = None,
         else:
             results.append(BenchResult(name, None, "no progress reported"))
     return results
+
+
+def run_parallel_bench(info: MediaInfo, jobs: int, seconds: float = 30.0, at: float | None = None,
+                       height: int = 1080) -> BenchResult:
+    """Run `jobs` copies of the CPU decode + SDR + encode pipeline on different slices at once.
+
+    Reports the aggregate frame rate. If it scales with jobs, a single process
+    is leaving cores idle and the proxy should be rendered in segments.
+    """
+    import subprocess
+    from .ffmpeg import ffmpeg_bin, _popen_kwargs
+
+    caps = capabilities()
+    if at is None:
+        at = min(3600.0, max(0.0, info.duration / 2))
+    sdr = sdr_filter(info, caps)
+    if height and height < info.height:
+        sdr = f"scale=-2:{height},{sdr}"
+    enc = NVENC if encoder_works("h264_nvenc") else ["-c:v", "libx264", "-preset", "veryfast", "-crf", "21"]
+    v = f"0:{info.video_stream_index}"
+    procs = []
+    t0 = time.time()
+    for j in range(jobs):
+        start = at + j * (seconds + 5)
+        cmd = [ffmpeg_bin(), "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
+               "-ss", fmt_seconds(start), "-i", info.path, "-t", fmt_seconds(seconds),
+               "-map", v, "-vf", sdr, *enc, "-f", "null", "-"]
+        procs.append(subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, **_popen_kwargs()))
+    errors = []
+    for p in procs:
+        _, err = p.communicate()
+        if p.returncode != 0:
+            errors.append(err.strip().splitlines()[-1] if err.strip() else f"exit {p.returncode}")
+    dt = time.time() - t0
+    frames = round(seconds * float(info.rate.fps)) * jobs
+    name = f"{jobs} parallel x (CPU dec + SDR + enc {height}p)"
+    if errors:
+        return BenchResult(name, None, "; ".join(errors))
+    return BenchResult(name, frames / dt)
