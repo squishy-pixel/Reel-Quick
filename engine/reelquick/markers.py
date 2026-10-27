@@ -93,7 +93,6 @@ def import_log_csv(
     def cell(row: list[str], i: int | None) -> str:
         return row[i].strip() if i is not None and i < len(row) else ""
 
-    offset_frames = round(offset_seconds * float(rate.fps))
     start = info.start_frames
     total = info.nb_frames
     day = day_frames(rate)
@@ -105,11 +104,11 @@ def import_log_csv(
             skipped.append(f"row {n}: no time")
             continue
         try:
-            tod = parse_time_of_day(t, rate)
+            tod = parse_time_of_day(t, rate, offset_seconds)
         except ValueError as e:
             skipped.append(f"row {n}: {e}")
             continue
-        frame = tod - start + offset_frames
+        frame = tod - start
         if frame < -day // 2:
             frame += day          # log time after midnight, file started the evening before
         if frame < 0 or frame >= total:

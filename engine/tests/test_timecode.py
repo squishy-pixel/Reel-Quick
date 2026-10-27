@@ -84,3 +84,14 @@ def test_parse_time_of_day_rejects_garbage():
 def test_day_frames():
     assert day_frames(R5994) == tc_to_frames("23:59:59;59", R5994) + 1
     assert day_frames(R25) == 25 * 86400
+
+
+def test_time_of_day_offset_shifts_the_label():
+    # a minute of DF timecode is 3596 frames when it crosses a dropped-frame boundary
+    assert parse_time_of_day("15:24:02", R5994, 60) == tc_to_frames("15:25:02;00", R5994)
+    assert parse_time_of_day("6:25:02 PM", R5994, -3 * 3600) == tc_to_frames("15:25:02;00", R5994)
+    # wraps across midnight in both directions
+    assert parse_time_of_day("00:10:00", R5994, -3600) == tc_to_frames("23:10:00;00", R5994)
+    assert parse_time_of_day("23:50:00", R5994, 1200) == tc_to_frames("00:10:00;00", R5994)
+    # fractional seconds of offset become frames
+    assert parse_time_of_day("15:25:00", R5994, 0.5) == tc_to_frames("15:25:00;04", R5994) + 30

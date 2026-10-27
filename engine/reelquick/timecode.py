@@ -149,12 +149,11 @@ _TOD_RE = re.compile(
 )
 
 
-def parse_time_of_day(text: str, rate: FrameRate) -> int:
-    """Parse a wall-clock time as typed in a log into a frame count since midnight.
+def parse_time_of_day_parts(text: str, rate: FrameRate) -> tuple[int, int, int, int]:
+    """Parse a wall-clock time as typed in a log into (hours, minutes, seconds, frames).
 
     Accepts '19:32:05', '7:32:05 PM', '7:32 pm', '19:32', '19:32:05.5',
-    '19:32:05;12'. Returns frames in the same drop-frame or non-drop sense the
-    rate implies, so it can be compared with the file's own start timecode.
+    '19:32:05;12'.
     """
     m = _TOD_RE.match(text)
     if not m or (m.group("m") is None and m.group("ampm") is None):
@@ -175,9 +174,32 @@ def parse_time_of_day(text: str, rate: FrameRate) -> int:
         ff = min(ff, nominal - 1)
     else:
         ff = 0
+    return hh, mm, ss, ff
+
+
+def time_of_day_frames(hh: int, mm: int, ss: int, ff: int, rate: FrameRate) -> int:
+    """Frames since midnight for a clock label, drop-frame aware, clamping dropped numbers."""
     drop = rate.drop_frame_capable
     sep = ";" if drop else ":"
     return tc_to_frames(f"{hh:02d}:{mm:02d}:{ss:02d}{sep}{ff:02d}", rate, drop=drop, clamp=True)
+
+
+def parse_time_of_day(text: str, rate: FrameRate, offset_seconds: float = 0.0) -> int:
+    """Parse a wall-clock time into a frame count since midnight.
+
+    offset_seconds shifts the clock label before conversion (a time zone, or a
+    log clock that runs fast or slow), wrapping across midnight. Shifting the
+    label rather than adding frames keeps drop-frame counting exact: a minute
+    of timecode is 3596 or 3600 frames depending on which minute it is.
+    """
+    hh, mm, ss, ff = parse_time_of_day_parts(text, rate)
+    whole = int(offset_seconds) if offset_seconds >= 0 else -int(-offset_seconds)
+    frac = offset_seconds - whole
+    total = (hh * 3600 + mm * 60 + ss + whole) % 86400
+    hh, rem = divmod(total, 3600)
+    mm, ss = divmod(rem, 60)
+    frames = time_of_day_frames(hh, mm, ss, ff, rate)
+    return frames + round(frac * float(rate.fps))
 
 
 def day_frames(rate: FrameRate) -> int:
