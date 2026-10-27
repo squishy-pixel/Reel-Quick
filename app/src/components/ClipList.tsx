@@ -26,7 +26,7 @@ export function ClipList({ clips, info, selected, onSelect, onPatch, onDelete, o
       {clips.map((c, i) => {
         const still = c.still_frame ?? Math.floor((c.in_frame + c.out_frame) / 2);
         const r = renderRows[c.id];
-        const rendered = Object.keys(c.rendered || {}).filter((k) => k !== "still");
+        const rendered = Object.keys(c.rendered || {}).filter((k) => ["prores", "mp4", "copy"].includes(k));
         return (
           <div key={c.id} className={`cliprow ${selected === c.id ? "selected" : ""}`} onClick={() => { onSelect(c.id); }} onDoubleClick={() => onSeek(c.in_frame)}>
             <img className="still" src={`/api/frame/${still}?width=320`} alt="" loading="lazy" />
@@ -46,7 +46,7 @@ export function ClipList({ clips, info, selected, onSelect, onPatch, onDelete, o
                   {c.still_frame === null ? "no still" : `still${c.extra_stills?.length ? ` +${c.extra_stills.length}` : ""}`}</span>
                 {r?.status === "running" && <span className="accent num">{Math.round(r.progress * 100)}%</span>}
                 {r?.status === "failed" && <span style={{ color: "var(--red)" }}>failed</span>}
-                {rendered.length > 0 && !r && <span className="ok" title={rendered.join(", ")}>✓ {rendered.join(" ")}</span>}
+                {rendered.length > 0 && !r && <span className="ok" title={`rendered: ${rendered.join(", ")}${c.rendered?.origin === "proxy" ? " (from proxy)" : ""}`}>✓{c.rendered?.origin === "proxy" ? " proxy" : ""}</span>}
               </div>
               <div className="chips" onClick={(e) => e.stopPropagation()}>
                 {FORMATS.map((f) => {
@@ -66,8 +66,8 @@ export function ClipList({ clips, info, selected, onSelect, onPatch, onDelete, o
   );
 }
 
-export function ClipEditor({ clip, info, frame, vocab, onPatch, onSeek, onSetStill }: {
-  clip: Clip; info: MediaInfo; frame: number; vocab: Vocab; onPatch: (patch: Partial<Clip>) => void; onSeek: (f: number) => void; onSetStill: () => void;
+export function ClipEditor({ clip, info, frame, vocab, onPatch, onSeek }: {
+  clip: Clip; info: MediaInfo; frame: number; vocab: Vocab; onPatch: (patch: Partial<Clip>) => void; onSeek: (f: number) => void;
 }) {
   const rate = { num: info.rate_num, den: info.rate_den };
   const base = startFrames(info);
@@ -88,13 +88,24 @@ export function ClipEditor({ clip, info, frame, vocab, onPatch, onSeek, onSetSti
       </div>
       <div className="field"><label>Description</label><input className="text" defaultValue={clip.desc} key={`d${clip.id}-${clip.desc}`} onBlur={(e) => e.target.value !== clip.desc && onPatch({ desc: e.target.value })} placeholder="What it is" /></div>
       <div className="field"><label>File name</label><input className="text num" defaultValue={clip.name} key={`n${clip.id}-${clip.name}`} onBlur={(e) => e.target.value !== clip.name && onPatch({ name: e.target.value })} /></div>
-      <div className="row3">
+      <div className="row">
         <div className="field"><label>In</label>
           <div style={{ display: "flex", gap: 4 }}><button className="btn small tc" onClick={() => onSeek(clip.in_frame)}>{tc(clip.in_frame)}</button><button className="btn small" title="Set in to playhead" onClick={() => onPatch({ in_frame: frame })}>←●</button></div></div>
         <div className="field"><label>Out</label>
           <div style={{ display: "flex", gap: 4 }}><button className="btn small tc" onClick={() => onSeek(clip.out_frame)}>{tc(clip.out_frame)}</button><button className="btn small" title="Set out to playhead" onClick={() => onPatch({ out_frame: frame })}>●→</button></div></div>
-        <div className="field"><label>Still</label>
-          <div style={{ display: "flex", gap: 4 }}><button className="btn small tc" onClick={() => onSeek(clip.still_frame ?? Math.floor((clip.in_frame + clip.out_frame) / 2))}>{tc(clip.still_frame ?? Math.floor((clip.in_frame + clip.out_frame) / 2))}</button><button className="btn small" title="Use the playhead frame as this clip's still (S)" onClick={onSetStill}>S</button></div></div>
+      </div>
+      <div className="field"><label>Stills <span className="dim" style={{ textTransform: "none", letterSpacing: 0 }}>· the first names the file, extras become _02, _03</span></label>
+        <div className="stillchips">
+          {clip.still_frame === null && <span className="dim" style={{ fontSize: 11 }}>none chosen · press <span className="kbd">S</span> on the frame you want</span>}
+          {clip.still_frame !== null && (
+            <span className="chip on" title="Main still" onClick={() => onSeek(clip.still_frame!)}>★ {tc(clip.still_frame)}
+              <i onClick={(e) => { e.stopPropagation(); const [next, ...rest] = clip.extra_stills || []; onPatch({ still_frame: next ?? null, extra_stills: rest }); }} title="Remove">✕</i></span>
+          )}
+          {(clip.extra_stills || []).map((f) => (
+            <span key={f} className="chip" onClick={() => onSeek(f)}>{tc(f)}
+              <i onClick={(e) => { e.stopPropagation(); onPatch({ extra_stills: clip.extra_stills.filter((x) => x !== f) }); }} title="Remove">✕</i></span>
+          ))}
+        </div>
       </div>
       <div className="row">
         <div className="field"><label>Head (s)</label><input className="text num" type="number" step="0.5" min="0" defaultValue={clip.head_seconds} key={`h${clip.id}-${clip.head_seconds}`} onBlur={(e) => onPatch({ head_seconds: Number(e.target.value) })} /></div>

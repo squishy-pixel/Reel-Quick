@@ -77,8 +77,9 @@ export function Filmstrip({ index, nbFrames, frame, markers, clips, inPoint, out
     g.fillStyle = "rgba(255,255,255,0.07)";
     g.fillRect(x((view.left / thumbW) * perThumb), 0, Math.max(2, x((view.width / thumbW) * perThumb)), h);
     for (const cl of clips) { g.fillStyle = "#FEB404"; g.fillRect(x(cl.in_frame), h - 7, Math.max(2, x(cl.out_frame) - x(cl.in_frame)), 6); }
-    for (const m of timed) { g.fillStyle = m.source === "user" ? "#F4F5F5" : "#FEB404"; g.fillRect(x(m.frame!) - 0.5, 4, 1.5, h - 14); }
-    for (const f of stills) { g.fillStyle = "#F4F5F5"; g.beginPath(); g.moveTo(x(f), 2); g.lineTo(x(f) + 4, 7); g.lineTo(x(f), 12); g.lineTo(x(f) - 4, 7); g.fill(); }
+    for (const m of timed) { g.fillStyle = m.source === "user" ? "#F4F5F5" : "#FEB404"; g.fillRect(x(m.frame!) - 0.5, 2, 1.5, h - 10); }
+    // still diamonds sit on the timeline's centre line so they read as belonging here, not to the strip above
+    for (const f of stills) { const cy = h / 2; g.fillStyle = "#F4F5F5"; g.beginPath(); g.moveTo(x(f), cy - 6); g.lineTo(x(f) + 6, cy); g.lineTo(x(f), cy + 6); g.lineTo(x(f) - 6, cy); g.closePath(); g.fill(); g.strokeStyle = "#000"; g.lineWidth = 1; g.stroke(); }
     if (inPoint !== null) { g.fillStyle = "rgba(254,180,4,0.35)"; g.fillRect(x(inPoint), 0, Math.max(2, x(outPoint ?? frame) - x(inPoint)), h); }
     g.fillStyle = "#F4F5F5"; g.fillRect(x(frame) - 1.5, 0, 3, h);
   }, [frame, timed, stills, clips, nbFrames, view, perThumb, thumbW, inPoint, outPoint]);
@@ -125,10 +126,6 @@ export function Filmstrip({ index, nbFrames, frame, markers, clips, inPoint, out
         onMouseMove={(e) => setHover({ x: e.nativeEvent.offsetX, frame: frameAt(e, e.currentTarget) })} onMouseLeave={() => setHover(null)}>
         <canvas ref={overview} />
         {hover && <div className="hovertc" style={{ left: Math.min(Math.max(hover.x, 50), (overview.current?.clientWidth ?? 200) - 50) }}><Tc value={tcOf(hover.frame)} /></div>}
-        <div className="zoom" onMouseDown={(e) => e.stopPropagation()}>
-          <span className="dim">thumbs</span>
-          <input type="range" min={THUMB_MIN} max={THUMB_MAX} step={8} value={thumbW} onChange={(e) => onThumbW(Number(e.target.value))} />
-        </div>
       </div>
     </div>
   );

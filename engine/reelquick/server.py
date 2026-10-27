@@ -319,10 +319,13 @@ def create_app(session: Session | None = None) -> FastAPI:
                 setattr(clip, k, v)
             if clip.out_frame <= clip.in_frame:
                 raise HTTPException(400, "out must be after in")
+            lo, hi = clip.padded_range(float(w.project.info.rate.fps))
+            lo, hi = max(0, lo), min(w.project.info.nb_frames, hi)
             if clip.still_frame is not None:
-                clip.still_frame = max(clip.in_frame, min(clip.out_frame - 1, clip.still_frame))
-            clip.extra_stills = sorted({max(clip.in_frame, min(clip.out_frame - 1, f)) for f in clip.extra_stills
-                                        if f != clip.still_frame})
+                clip.still_frame = max(lo, min(hi - 1, clip.still_frame))
+            # Stills may sit anywhere the rendered clip reaches, handles included; one of each frame, nothing clamped
+            # on top of another.
+            clip.extra_stills = sorted({f for f in clip.extra_stills if lo <= f < hi and f != clip.still_frame})
             if custom_name:
                 clip.notes = clip.notes or ""
                 clip.name = body.name            # a typed name is kept as typed

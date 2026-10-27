@@ -13,9 +13,9 @@ export function learnRate(job: Job, duration: number) {
 }
 export const estimate = (kind: string, duration: number) => clockText(duration / rateFor(kind));
 
-export function JobsPanel({ state, onFilmstrip, onProxy, onCancel, onAudioTracks, onAudioPreview }: {
+export function JobsPanel({ state, onFilmstrip, onProxy, onCancel, onAudioTracks, onAudioPreview, onSurround }: {
   state: AppState; onFilmstrip: (force: boolean) => void; onProxy: (height: number) => void; onCancel: (id: string) => void;
-  onAudioTracks: (tracks: number[]) => void; onAudioPreview: () => void;
+  onAudioTracks: (tracks: number[]) => void; onAudioPreview: () => void; onSurround: (s: { surround_in_mov?: boolean; surround_in_mp4?: boolean }) => void;
 }) {
   const latest = (kind: string) => [...state.jobs].reverse().find((j) => j.kind === kind);
   const ws = state.workspace!;
@@ -56,11 +56,13 @@ export function JobsPanel({ state, onFilmstrip, onProxy, onCancel, onAudioTracks
         <button className="btn small" title={`About ${estimate("proxy", duration)}`} onClick={() => confirmThen("proxy", ws.has_proxy, "The current proxy stays in place until the new one has finished.", () => onProxy(height))}>{ws.has_proxy ? "Rebuild" : `Build ≈ ${estimate("proxy", duration)}`}</button></>} />
       <div className="jobrow">
         <span className="name">Audio</span>
-        <div className="status" style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <span className="dim">tracks</span>
-          <input className="text num" style={{ width: 64, padding: "2px 5px", fontSize: 11 }} defaultValue={tracks} key={tracks} title="Source tracks for the proxy and every clip, 1-based, e.g. 7,8"
+        <div className="status" style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <span className="dim">stereo</span>
+          <input className="text num" style={{ width: 52, padding: "2px 5px", fontSize: 11 }} defaultValue={tracks} key={tracks} title="Source tracks of the stereo program mix, 1-based"
             onBlur={(e) => { const t = e.target.value.split(/[ ,]+/).map(Number).filter((n) => n > 0); if (t.length && t.join(",") !== tracks) onAudioTracks(t); }} />
-          <span className="dim">of {state.project!.info.audio.length}</span>
+          <span className="dim" title="Six mono tracks, L R C LFE Ls Rs, carried as a second 5.1 track">5.1</span>
+          <label className="dim" style={{ display: "flex", gap: 3, alignItems: "center" }} title="Add the 5.1 as a second track in ProRes and Original files"><input type="checkbox" checked={state.project!.settings.surround_in_mov} onChange={(e) => onSurround({ surround_in_mov: e.target.checked })} />MOV</label>
+          <label className="dim" style={{ display: "flex", gap: 3, alignItems: "center" }} title="Add the 5.1 as a second AAC track in share MP4s"><input type="checkbox" checked={state.project!.settings.surround_in_mp4} onChange={(e) => onSurround({ surround_in_mp4: e.target.checked })} />MP4</label>
         </div>
         <button className="btn small" onClick={onAudioPreview} title="Hear a few seconds of every track at the playhead">Listen</button>
       </div>

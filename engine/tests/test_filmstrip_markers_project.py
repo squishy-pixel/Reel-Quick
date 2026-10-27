@@ -69,5 +69,5 @@ def test_project_round_trip(info, tmp_path):
     assert again.info == info
     assert again.clips[1].in_frame == 100 and again.markers[0].shell == "LowerThird"
     spec = again.clip_spec(again.clips[1])
-    assert spec.fmt == OutputFormat.PRORES and spec.head_frames == 120 and spec.audio_tracks == (1, 2)
+    assert spec.fmt == OutputFormat.PRORES and spec.head_frames == 120 and spec.audio_tracks == (7, 8) and spec.include_surround
     assert json.loads(p.read_text())["version"] == 2

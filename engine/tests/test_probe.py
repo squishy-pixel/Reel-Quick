@@ -11,7 +11,7 @@ def test_probe_matches_real_feed_shape(info):
     assert info.is_hlg and info.is_hdr
     assert info.start_timecode == "15:25:00;04"
     assert info.drop_frame
-    assert len(info.audio) == 4 and all(a.channels == 1 for a in info.audio)
+    assert len(info.audio) == 8 and all(a.channels == 1 for a in info.audio)
     assert info.nb_frames == round(6 * 60000 / 1001)
 
 

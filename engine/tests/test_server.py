@@ -31,6 +31,7 @@ def test_open_and_state(client):
     assert s["project"]["info"]["is_intra"] is True
     assert s["workspace"]["has_proxy"] is False and s["workspace"]["has_filmstrip"] is False
     assert s["project"]["settings"]["log_offset_seconds"] == -10800
+    assert s["project"]["settings"]["audio_tracks"] == [7, 8]      # eight mono tracks in the synthetic file
     assert client.post("/api/open", json={"path": "/nope.mxf"}).status_code == 404
 
 
@@ -132,14 +133,14 @@ def test_extra_stills_and_audio_preview(client):
     r = client.post("/api/clips", json={"in_frame": 60, "out_frame": 120, "desc": "multi", "formats": ["copy"]})
     cid = r.json()["clip"]["id"]
     r = client.patch(f"/api/clips/{cid}", json={"still_frame": 70, "extra_stills": [90, 70, 500]})
-    assert r.json()["clip"]["extra_stills"] == [90, 119]          # duplicate of the primary dropped, 500 clamped
+    assert r.json()["clip"]["extra_stills"] == [90]               # duplicate of the primary dropped, 500 is outside the clip
     job = client.post("/api/jobs/render", json={"clip_ids": [cid]}).json()
     done = _wait(client, job["id"])
     row = done["detail"]["clips"][0]
-    assert row["outputs"]["still"].endswith(".png") and len(row["outputs"]["extra_stills"]) == 2
+    assert row["outputs"]["still"].endswith(".png") and len(row["outputs"]["extra_stills"]) == 1
     assert row["outputs"]["extra_stills"][0].endswith("_02.png")
     r = client.post("/api/audio-preview", json={"at_frame": 30, "seconds": 1})
-    assert r.status_code == 200 and len(r.json()["tracks"]) == 4
+    assert r.status_code == 200 and len(r.json()["tracks"]) == 8
     assert client.get(r.json()["tracks"][0]["url"]).status_code == 200
     assert client.get(r.json()["tracks"][0]["wave"]).headers["content-type"] == "image/png"
     state = client.get("/api/state").json()

@@ -78,7 +78,7 @@ def _encode_args(info: MediaInfo, settings: ProxySettings, start_frame: int, n_f
     rate = info.rate
     keyint = max(1, round(settings.keyint_seconds * float(rate.fps)))
     vf, tag_args = _video_chain(info, settings, encoder)
-    tracks = select_tracks(info, settings.audio_tracks)
+    tracks = select_tracks(info, settings.audio_tracks, fallback=True)
     a_graph, a_map = audio_graph(info, tracks)
     graph = f"[0:{info.video_stream_index}]{vf}[v]" + (";" + a_graph if a_graph else "")
 

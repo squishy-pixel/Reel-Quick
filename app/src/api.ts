@@ -12,7 +12,7 @@ export interface Clip {
 export interface Still { id: string; frame: number; name: string; rendered: string | null }
 export interface Game { date: string; week: string; away: string; home: string }
 export interface Settings {
-  audio_tracks: number[]; prores_profile: string; mp4_sdr: boolean; mp4_height: number | null; copy_container: string;
+  audio_tracks: number[]; surround_tracks: number[]; surround_in_mov: boolean; surround_in_mp4: boolean; prores_profile: string; mp4_sdr: boolean; mp4_height: number | null; copy_container: string;
   still_format: string; still_hdr: boolean; default_formats: string[]; name_pattern: string;
   default_head_seconds: number; default_tail_seconds: number; log_offset_seconds: number; output_dir: string;
 }

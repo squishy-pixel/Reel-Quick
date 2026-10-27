@@ -22,6 +22,7 @@ export default function App() {
   const [follow, setFollow] = useState(true);
   const [pendingStill, setPendingStill] = useState<number | null>(null);
   const [recent, setRecent] = useState<Recent[]>([]);
+  const [pstatus, setPstatus] = useState({ rate: 0, mode: "no video" });
   useEffect(() => { if (state && !state.project) api.recent().then(setRecent).catch(() => setRecent([])); }, [state?.project === null]); // eslint-disable-line react-hooks/exhaustive-deps
   const [thumbW, setThumbWState] = useState(() => { try { return Math.max(THUMB_MIN, Math.min(THUMB_MAX, Number(localStorage.getItem("rq.thumbW")) || 160)); } catch { return 160; } });
   const setThumbW = (w: number) => { setThumbWState(w); try { localStorage.setItem("rq.thumbW", String(w)); } catch { /* ignore */ } };
@@ -102,10 +103,11 @@ export default function App() {
   const setStill = useCallback(() => {
     // Inside a clip: first press sets its still, later presses add extra stills. Outside any clip: remember the
     // frame and attach it when a clip is added around it.
-    // A selected clip owns S anywhere inside its handles; otherwise whichever clip contains the frame.
-    const inside = (c: Clip, pad = 0) => frame >= c.in_frame - pad * fps && frame < c.out_frame + pad * fps;
-    const owner = selectedClip && inside(selectedClip, Math.max(selectedClip.head_seconds, selectedClip.tail_seconds)) ? selectedClip
-      : project?.clips.find((c) => inside(c)) ?? null;
+    // A selected clip owns S anywhere inside its handles; otherwise whichever clip contains the frame,
+    // content first, handles second. The server keeps stills within the same padded range.
+    const inside = (c: Clip, pad = true) => frame >= c.in_frame - (pad ? c.head_seconds : 0) * fps && frame < c.out_frame + (pad ? c.tail_seconds : 0) * fps;
+    const owner = selectedClip && inside(selectedClip) ? selectedClip
+      : project?.clips.find((c) => inside(c, false)) ?? project?.clips.find((c) => inside(c)) ?? null;
     if (owner) {
       if (owner.still_frame === null) run(api.patchClip(owner.id, { still_frame: frame }), () => { setSelected(owner.id); say("Still set for this clip"); });
       else if (owner.still_frame === frame || owner.extra_stills?.includes(frame)) say("That frame is already a still for this clip");
@@ -194,22 +196,16 @@ export default function App() {
         <button className="btn small" onClick={() => setDialog({ kind: "help" })} title="Keyboard shortcuts">?</button>
       </div>
 
-      <div className="strip-area">
-        {project && strip ? (
-          <Filmstrip index={strip} nbFrames={info!.nb_frames} frame={frame} markers={project.markers} clips={project.clips}
-            inPoint={inPoint} outPoint={outPoint} pendingStill={pendingStill} onSeek={seek} follow={follow} thumbW={thumbW} onThumbW={setThumbW} tcOf={tcOf} />
-        ) : (
-          <div className="strip-empty hatch">
-            {project ? <><span>No filmstrip yet.</span><button className="btn primary" onClick={() => run(api.startFilmstrip({}))}>Build filmstrip</button><span className="dim">About five minutes for a full game.</span></> : <span className="dim">Open a recording to begin.</span>}
-          </div>
-        )}
-      </div>
-
       <div className="main">
         {project ? (
           <>
-            <Player ref={player} info={info!} proxyUrl={ws!.proxy_url} frame={frame} onFrame={onFrame} exactView={exactView} />
+            <Player ref={player} info={info!} proxyUrl={ws!.proxy_url} frame={frame} onFrame={onFrame} exactView={exactView} onStatus={setPstatus} />
             <div className="transport">
+              <div className="readout">
+                <Tc value={tcOf(frame)} className="big" />
+                <span className="dim num" style={{ minWidth: 96 }}>{frame.toLocaleString()}</span>
+                <span className="dim caps" style={{ fontSize: 9, letterSpacing: "0.14em", minWidth: 70 }}>{pstatus.rate !== 0 ? <span className="accent">{pstatus.rate}x</span> : pstatus.mode}</span>
+              </div>
               <button className="btn small" onClick={() => player.current?.shuttle(-1)} title="J">◀◀</button>
               <button className="btn small" onClick={() => player.current?.toggle()} title="Space">▶ / ❚❚</button>
               <button className="btn small" onClick={() => player.current?.shuttle(1)} title="L">▶▶</button>
@@ -220,10 +216,21 @@ export default function App() {
               <div className={`mark ${inPoint !== null ? "set" : ""}`} onClick={() => setIn(frame)}><span className="k">In</span>{inPoint !== null ? <Tc value={tcOf(inPoint)} /> : <span className="tc">—</span>}</div>
               <div className={`mark ${outPoint !== null ? "set" : ""}`} onClick={() => setOut(frame)}><span className="k">Out</span>{outPoint !== null ? <Tc value={tcOf(outPoint)} /> : <span className="tc">—</span>}</div>
               <button className="btn primary small" onClick={addClip} disabled={inPoint === null && outPoint === null}>Add clip ⏎</button>
-              <button className="btn small" onClick={setStill} title="S">Still</button>
+              <button className="btn small" onClick={setStill} title="S: set or add a still at this frame">Still</button>
               <span className="spacer" />
-              <label className="dim" style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 11 }}><input type="checkbox" checked={exactView} onChange={(e) => setExact(e.target.checked)} /> show source frame when paused (F)</label>
+              <label className="dim" style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 11 }}><input type="checkbox" checked={exactView} onChange={(e) => setExact(e.target.checked)} /> source frame (F)</label>
               <label className="dim" style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 11 }}><input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} /> follow</label>
+              <label className="dim zoomctl" title="Thumbnail size (Ctrl+wheel over the strip)"><input type="range" min={THUMB_MIN} max={THUMB_MAX} step={8} value={thumbW} onChange={(e) => setThumbW(Number(e.target.value))} /></label>
+            </div>
+            <div className="strip-area">
+              {strip ? (
+                <Filmstrip index={strip} nbFrames={info!.nb_frames} frame={frame} markers={project.markers} clips={project.clips}
+                  inPoint={inPoint} outPoint={outPoint} pendingStill={pendingStill} onSeek={seek} follow={follow} thumbW={thumbW} onThumbW={setThumbW} tcOf={tcOf} />
+              ) : (
+                <div className="strip-empty hatch">
+                  <span>No filmstrip yet.</span><button className="btn primary" onClick={() => run(api.startFilmstrip({}))}>Build filmstrip</button><span className="dim">About five minutes for a full game.</span>
+                </div>
+              )}
             </div>
           </>
         ) : (
@@ -255,7 +262,8 @@ export default function App() {
           <>
             <div>
               <JobsPanel state={state} onFilmstrip={(force) => run(api.startFilmstrip({ force }))} onProxy={(height) => run(api.startProxy({ height }))} onCancel={(id) => run(api.cancelJob(id))}
-                onAudioTracks={(t) => run(api.settings({ audio_tracks: t }), () => say("Audio tracks saved. Rebuild the proxy to hear them there."))}
+                onAudioTracks={(t) => run(api.settings({ audio_tracks: t }), () => say("Stereo pair saved. Rebuild the proxy to hear it there."))}
+                onSurround={(sv) => run(api.settings(sv))}
                 onAudioPreview={() => { setDialog({ kind: "audio", tracks: null }); api.audioPreview(frame).then((r) => setDialog({ kind: "audio", tracks: r.tracks })).catch((e) => { setDialog(null); say(e.message, true); }); }} />
               <MarkersPanel markers={project.markers} info={info!} onSeek={seek} onImport={importCsv} onDelete={(f) => run(api.deleteMarker(f))}
                 onDeleteUntimed={(i) => run(api.deleteUntimed(i))}
@@ -265,7 +273,7 @@ export default function App() {
             </div>
             <ClipList clips={project.clips} info={info!} selected={selected} onSelect={setSelected} onPatch={patchClip} onDelete={deleteClip} onSeek={seek} renderRows={renderRows} />
             <div>
-              {selectedClip && <ClipEditor clip={selectedClip} info={info!} frame={frame} vocab={state.vocab} onPatch={(p) => patchClip(selectedClip.id, p)} onSeek={seek} onSetStill={setStill} />}
+              {selectedClip && <ClipEditor clip={selectedClip} info={info!} frame={frame} vocab={state.vocab} onPatch={(p) => patchClip(selectedClip.id, p)} onSeek={seek} />}
               <RenderPanel job={renderJob} clipCount={project.clips.length} missingStills={project.clips.filter((c) => c.still_frame === null).length} selectedId={selected} outDir={ws!.clips_dir}
                 onRender={() => startRender()}
                 onRenderSelected={() => selected && startRender([selected])}

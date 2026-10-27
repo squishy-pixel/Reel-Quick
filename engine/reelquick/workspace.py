@@ -136,6 +136,9 @@ class Workspace:
         else:
             info = probe(source)
             project = Project(source=str(source), info=info, game=guess_game(source))
+            from .audio import default_tracks
+            project.settings.audio_tracks = default_tracks(info)
+            project.settings.audio_layout_confirmed = True
             project.save(project_path)
         return cls(source=source, root=root, project=project)
 

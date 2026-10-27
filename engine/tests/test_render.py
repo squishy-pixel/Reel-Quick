@@ -67,5 +67,21 @@ def test_single_track_and_bad_track(info, tmp_path):
     spec = ClipSpec(in_frame=0, out_frame=5, name="mono", fmt=OutputFormat.COPY, audio_tracks=(3,))
     got = probe(render_clip(info, spec, tmp_path))
     assert got.audio[0].channels == 1
-    with pytest.raises(ValueError):
-        render_clip(info, ClipSpec(in_frame=0, out_frame=5, name="bad", fmt=OutputFormat.COPY, audio_tracks=(9,)), tmp_path)
+    # a pair the file does not have falls back to the file's default instead of failing
+    got = probe(render_clip(info, ClipSpec(in_frame=0, out_frame=5, name="bad", fmt=OutputFormat.COPY, audio_tracks=(19, 20)), tmp_path))
+    assert got.audio[0].channels == 2
+
+
+def test_stereo_pair_plus_surround_tracks(info, tmp_path):
+    spec = ClipSpec(in_frame=0, out_frame=12, name="layers", fmt=OutputFormat.COPY, audio_tracks=(7, 8),
+                    surround_tracks=(1, 2, 3, 4, 5, 6), include_surround=True)
+    got = probe(render_clip(info, spec, tmp_path))
+    assert [a.channels for a in got.audio] == [2, 6]
+    spec = ClipSpec(in_frame=0, out_frame=12, name="layers_mp4", fmt=OutputFormat.MP4, audio_tracks=(7, 8),
+                    surround_tracks=(1, 2, 3, 4, 5, 6), include_surround=True)
+    got = probe(render_clip(info, spec, tmp_path))
+    assert [a.channels for a in got.audio] == [2, 6] and all(a.codec == "aac" for a in got.audio)
+    # a file without six surround tracks just gets the stereo
+    spec = ClipSpec(in_frame=0, out_frame=12, name="nosur", fmt=OutputFormat.COPY, audio_tracks=(7, 8),
+                    surround_tracks=(1, 2, 3, 4, 5, 60), include_surround=True)
+    assert [a.channels for a in probe(render_clip(info, spec, tmp_path)).audio] == [2]

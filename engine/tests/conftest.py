@@ -17,7 +17,7 @@ from reelquick.probe import probe
 
 START_TC = "15:25:00;04"
 SECONDS = 6
-AUDIO_TRACKS = 4
+AUDIO_TRACKS = 8
 
 
 @pytest.fixture(scope="session")

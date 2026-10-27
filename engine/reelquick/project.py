@@ -43,6 +43,10 @@ class ClipEntry:
     def to_dict(self) -> dict:
         return asdict(self)
 
+    def padded_range(self, fps: float) -> tuple[int, int]:
+        """Frames the rendered clip will contain, handles included."""
+        return int(self.in_frame - self.head_seconds * fps), int(self.out_frame + self.tail_seconds * fps)
+
     @property
     def representative_frame(self) -> int:
         if self.still_frame is not None:
@@ -72,7 +76,11 @@ class StillEntry:
 
 @dataclass
 class Settings:
-    audio_tracks: list[int] = field(default_factory=lambda: [1, 2])
+    audio_tracks: list[int] = field(default_factory=lambda: [7, 8])          # stereo program mix
+    surround_tracks: list[int] = field(default_factory=lambda: [1, 2, 3, 4, 5, 6])   # L R C LFE Ls Rs
+    surround_in_mov: bool = True
+    surround_in_mp4: bool = True
+    audio_layout_confirmed: bool = False
     prores_profile: str = "standard"
     mp4_sdr: bool = True
     mp4_height: int | None = None
@@ -165,6 +173,8 @@ class Project:
             head_frames=round(clip.head_seconds * fps),
             tail_frames=round(clip.tail_seconds * fps),
             audio_tracks=tuple(self.settings.audio_tracks) or None,
+            surround_tracks=tuple(self.settings.surround_tracks) or None,
+            include_surround=(self.settings.surround_in_mp4 if fmt == "mp4" else self.settings.surround_in_mov),
             prores_profile=self.settings.prores_profile,
             mp4_sdr=self.settings.mp4_sdr,
             mp4_height=self.settings.mp4_height,
@@ -234,9 +244,13 @@ class Project:
         settings = Settings(**{k: v for k, v in d.get("settings", {}).items() if k in Settings.__dataclass_fields__})
         if settings.name_pattern in OLD_PATTERNS:
             settings.name_pattern = DEFAULT_PATTERN
+        info = MediaInfo.from_dict(d["info"])
+        if not settings.audio_layout_confirmed and settings.audio_tracks == [1, 2] and len(info.audio) >= 8:
+            settings.audio_tracks = [7, 8]        # the return feed's stereo mix; 1-6 are the 5.1
+            settings.audio_layout_confirmed = True
         return cls(
             source=d["source"],
-            info=MediaInfo.from_dict(d["info"]),
+            info=info,
             game=GameInfo(**d.get("game", {})),
             settings=settings,
             markers=[Marker(**{k: v for k, v in m.items() if k in Marker.__dataclass_fields__}) for m in d.get("markers", [])],

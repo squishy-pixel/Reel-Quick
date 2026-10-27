@@ -1,7 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { MediaInfo } from "../api";
-import { framesToTc } from "../timecode";
-import { Tc } from "./Tc";
 
 export interface PlayerHandle {
   seek(frame: number): void;
@@ -14,7 +12,8 @@ export interface PlayerHandle {
 
 export const Player = forwardRef<PlayerHandle, {
   info: MediaInfo; proxyUrl: string | null; frame: number; onFrame: (f: number) => void; exactView: boolean;
-}>(function Player({ info, proxyUrl, frame, onFrame, exactView }, ref) {
+  onStatus?: (s: { rate: number; mode: string }) => void;
+}>(function Player({ info, proxyUrl, frame, onFrame, exactView, onStatus }, ref) {
   const video = useRef<HTMLVideoElement>(null);
   const fps = info.fps;
   const [rate, setRate] = useState(0);
@@ -70,8 +69,9 @@ export const Player = forwardRef<PlayerHandle, {
     return () => { v.removeEventListener("timeupdate", onTime); v.removeEventListener("seeked", onTime); v.removeEventListener("play", onPlay); v.removeEventListener("pause", onPause); if (handle && (v as any).cancelVideoFrameCallback) (v as any).cancelVideoFrameCallback(handle); };
   }, [proxyUrl, fps, info.nb_frames, onFrame]);
 
-  const tc = framesToTc((info.start_timecode ? startFrames(info) : 0) + frame, { num: info.rate_num, den: info.rate_den }, info.drop_frame);
   const showExact = exactView && paused && rate === 0;
+  // The transport bar shows rate and mode; nothing is drawn over the picture.
+  useEffect(() => { onStatus?.({ rate, mode: showExact ? "source frame" : proxyUrl ? "proxy" : "no video" }); }, [rate, showExact, proxyUrl, onStatus]);
 
   return (
     <div className="player">
@@ -85,12 +85,6 @@ export const Player = forwardRef<PlayerHandle, {
           </div>
         ) : null}
         {showExact && <img className="frame" src={`/api/frame/${frame}?width=1280`} alt="" />}
-        <div className="readout">
-          <Tc value={tc} className="big" />
-          <span className="dim num" style={{ minWidth: 120 }}>frame {frame.toLocaleString()}</span>
-          {rate !== 0 && <span className="accent num">{rate > 0 ? `${rate}x` : `${rate}x`}</span>}
-        </div>
-        <div className="badge">{showExact ? "source frame" : proxyUrl ? "proxy" : "no video"}</div>
       </div>
     </div>
   );

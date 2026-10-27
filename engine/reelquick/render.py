@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
-from .audio import audio_graph, select_tracks
+from .audio import audio_streams
 from .color import SDR_TAG_ARGS, sdr_filter, source_tag_args
 from .ffmpeg import FfmpegError, ProgressFn, capabilities, encoder_works, fmt_seconds, run_ffmpeg
 from .probe import MediaInfo
@@ -31,7 +31,9 @@ class ClipSpec:
     fmt: OutputFormat = OutputFormat.PRORES
     head_frames: int = 0              # extra frames before in
     tail_frames: int = 0              # extra frames after out
-    audio_tracks: tuple[int, ...] | None = None   # 1-based track numbers
+    audio_tracks: tuple[int, ...] | None = None   # 1-based track numbers of the stereo pair
+    surround_tracks: tuple[int, ...] | None = None  # six 1-based mono tracks, L R C LFE Ls Rs
+    include_surround: bool = False
     prores_profile: str = "standard"
     mp4_sdr: bool = True
     mp4_height: int | None = None     # None keeps source size
@@ -64,8 +66,12 @@ def build_render_args(info: MediaInfo, spec: ClipSpec, out_path: Path) -> tuple[
     clip_tc = frames_to_tc(info.start_frames + start, rate, info.drop_frame)
     caps = capabilities()
 
-    tracks = select_tracks(info, spec.audio_tracks)
-    a_graph, a_map = audio_graph(info, tracks)
+    streams = audio_streams(info, spec.audio_tracks, spec.surround_tracks, spec.include_surround)
+    tracks = bool(streams)
+    a_graph = ";".join(g for g, _m, _t in streams if g) or None
+    a_map = [x for _g, m, _t in streams for x in m]
+    a_titles = [x for i, (_g, _m, t) in enumerate(streams) for x in ("-metadata:s:a:%d" % i, f"title={t}")]
+    a_default = ["-disposition:a:0", "default"] if len(streams) > 1 else []
 
     args: list[str] = []
     vmap = f"0:{info.video_stream_index}"
@@ -79,7 +85,7 @@ def build_render_args(info: MediaInfo, spec: ClipSpec, out_path: Path) -> tuple[
             args += ["-filter_complex", a_graph]
         args += a_map
         if tracks:
-            args += ["-c:a", "pcm_s24le"]
+            args += ["-c:a", "pcm_s24le", *a_titles, *a_default]
     else:
         args += ["-ss", fmt_seconds(start_sec), "-i", info.path]
         if spec.fmt == OutputFormat.PRORES:
@@ -90,7 +96,7 @@ def build_render_args(info: MediaInfo, spec: ClipSpec, out_path: Path) -> tuple[
             args += ["-c:v", "prores_ks", "-profile:v", str(profile), "-vendor", "apl0"]
             args += source_tag_args(info)
             if tracks:
-                args += ["-c:a", "pcm_s24le"]
+                args += ["-c:a", "pcm_s24le", *a_titles, *a_default]
         else:
             parts: list[str] = []
             if spec.mp4_height and spec.mp4_height < info.height:
@@ -107,7 +113,9 @@ def build_render_args(info: MediaInfo, spec: ClipSpec, out_path: Path) -> tuple[
             args += ["-filter_complex", graph, "-map", "[v]", *a_map]
             args += ["-c:v", encoder, *enc_args, *tags]
             if tracks:
-                args += ["-c:a", "aac", "-b:a", "192k"]
+                args += ["-c:a", "aac", "-b:a:0", "192k", *a_titles, *a_default]
+                if len(streams) > 1:
+                    args += ["-b:a:1", "448k"]
             args += ["-movflags", "+faststart"]
 
     args += ["-t", fmt_seconds(duration), "-frames:v", str(n)]
