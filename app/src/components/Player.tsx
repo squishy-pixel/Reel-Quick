@@ -7,8 +7,9 @@ export interface PlayerHandle {
   play(rate?: number): void;
   pause(): void;
   toggle(): void;
-  shuttle(dir: 1 | -1): void;
+  shuttle(dir: 1 | -1, slow?: boolean): void;
   playing(): boolean;
+  jog(frames: number): void;
 }
 
 export const Player = forwardRef<PlayerHandle, {
@@ -29,6 +30,14 @@ export const Player = forwardRef<PlayerHandle, {
   const [paused, setPaused] = useState(true);
 
   const stopReverse = () => { if (reverse.current) { cancelAnimationFrame(reverse.current); reverse.current = null; } };
+  const jogFrames = (frames: number) => {
+    // Trackpad / wheel scrub: pause and move by whole frames, clamped to the recording.
+    const v = video.current; if (!v) return;
+    if (!v.paused || reverse.current) { stopReverse(); setRate(0); v.pause(); }
+    const target = Math.max(0, Math.min(info.nb_frames - 1, Math.round(((v.currentTime - off) * fps) + frames)));
+    onFrameRef.current(target);
+    v.currentTime = off + (target + 0.3) / fps;
+  };
 
   useImperativeHandle(ref, () => ({
     seek(f) {
@@ -42,12 +51,17 @@ export const Player = forwardRef<PlayerHandle, {
     },
     pause() { const v = video.current; stopReverse(); setRate(0); v?.pause(); },
     toggle() { const v = video.current; if (!v) return; if (v.paused && !reverse.current) { this.play(1); } else { this.pause(); } },
-    shuttle(dir) {
+    jog(frames) { jogFrames(frames); },
+    shuttle(dir, slow = false) {
       const v = video.current; if (!v) return;
-      if (dir === 1) { const next = rate >= 1 ? Math.min(8, rate * 2) : 1; this.play(next); return; }
+      if (dir === 1) {
+        // L: 1x, 2x, 4x, 8x. Shift+L: quarter speed, then half, then back to 1x.
+        const next = slow ? (rate === 0.25 ? 0.5 : rate === 0.5 ? 1 : 0.25) : rate >= 1 ? Math.min(8, rate * 2) : 1;
+        this.play(next); return;
+      }
       // Reverse: HTML video cannot play backwards, so step the time down each animation frame.
       v.pause();
-      const speed = rate <= -1 ? Math.max(-8, rate * 2) : -1;
+      const speed = slow ? (rate === -0.25 ? -0.5 : rate === -0.5 ? -1 : -0.25) : rate <= -1 ? Math.max(-8, rate * 2) : -1;
       setRate(speed);
       stopReverse();
       let last = performance.now();
@@ -110,12 +124,33 @@ export const Player = forwardRef<PlayerHandle, {
   }, [proxyUrl, fps, info.nb_frames, off]);
 
   const showExact = exactView && paused && rate === 0;
+
+  // Two-finger horizontal swipe over the picture jogs frames: a slow swipe steps single frames, a flick
+  // covers seconds, and the trackpad's own inertia gives the glide. Shift+vertical wheel does the same
+  // for a mouse. Vertical scrolling alone is left alone.
+  const wheelAcc = useRef(0);
+  const wheelRaf = useRef<number | null>(null);
+  const onWheel = (e: React.WheelEvent) => {
+    const horizontal = Math.abs(e.deltaX) > Math.abs(e.deltaY);
+    const delta = horizontal ? e.deltaX : e.shiftKey ? e.deltaY : 0;
+    if (!delta) return;
+    e.preventDefault();
+    wheelAcc.current += delta;
+    if (wheelRaf.current) return;
+    wheelRaf.current = requestAnimationFrame(() => {
+      wheelRaf.current = null;
+      const d = wheelAcc.current; wheelAcc.current = 0;
+      // ~6 px per frame feels like a jog wheel; cap a single tick at two seconds
+      const frames = Math.max(-2 * fps, Math.min(2 * fps, Math.trunc(d / 6)));
+      if (frames) jogFrames(frames);
+    });
+  };
   // The transport bar shows rate and mode; nothing is drawn over the picture.
   useEffect(() => { onStatusRef.current?.({ rate, mode: showExact ? "source frame" : proxyUrl ? "proxy" : "no video" }); }, [rate, showExact, proxyUrl]);
 
   return (
     <div className="player">
-      <div className="stage">
+      <div className="stage" onWheel={onWheel}>
         {proxyUrl ? (
           <video ref={video} preload="auto" playsInline style={{ display: showExact ? "none" : "block" }} />
         ) : !showExact ? (

@@ -148,6 +148,12 @@ export default function App() {
   };
 
   // ---- keyboard --------------------------------------------------------
+  const held = useRef({ key: "", count: 0 });
+  useEffect(() => {
+    const onUp = () => { held.current = { key: "", count: 0 }; };
+    window.addEventListener("keyup", onUp);
+    return () => window.removeEventListener("keyup", onUp);
+  }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
@@ -155,12 +161,20 @@ export default function App() {
       if (!project) return;
       const p = player.current;
       const step = (n: number) => { p?.pause(); seek(frame + n); };
-      const big = e.shiftKey ? Math.round(fps) : e.ctrlKey || e.metaKey ? Math.round(fps * 10) : 1;
+      // Holding an arrow accelerates: single frames, then a few, then quarter seconds, then whole seconds.
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        held.current = held.current.key === e.key ? { key: e.key, count: held.current.count + 1 } : { key: e.key, count: 0 };
+      }
+      const n = held.current.count;
+      const ramp = n < 8 ? 1 : n < 20 ? 3 : n < 40 ? Math.round(fps / 4) : Math.round(fps);
+      const big = e.shiftKey ? Math.round(fps) : e.ctrlKey || e.metaKey ? Math.round(fps * 10) : ramp;
       switch (e.key) {
         case " ": e.preventDefault(); p?.toggle(); break;
         case "k": case "K": p?.pause(); break;
-        case "l": case "L": p?.shuttle(1); break;
-        case "j": case "J": p?.shuttle(-1); break;
+        case "l": p?.shuttle(1); break;
+        case "L": p?.shuttle(1, true); break;
+        case "j": p?.shuttle(-1); break;
+        case "J": p?.shuttle(-1, true); break;
         case "ArrowLeft": e.preventDefault(); step(-big); break;
         case "ArrowRight": e.preventDefault(); step(big); break;
         case "Home": seek(0); break;
@@ -316,7 +330,7 @@ export default function App() {
           <div className="modal" style={{ width: 520, gridTemplateRows: "auto 1fr" }} onClick={(e) => e.stopPropagation()}>
             <header><h2>Keyboard</h2></header>
             <div className="help">
-              {([["Space", "play / pause"], ["J / K / L", "shuttle back / pause / shuttle forward (press again for faster)"], ["← →", "one frame; Shift = one second; Ctrl = ten seconds"], ["I / O", "set in / out at the playhead"], ["Enter", "add the in–out range as a clip"], ["Esc", "clear in / out and selection"], ["[ ]", "previous / next marker"], ["M", "drop a marker at the playhead"], ["S", "still: sets the clip's still, adds an extra one if it has one, or marks the frame for the next clip"], ["Shift+S", "save this frame as a named still"], ["F", "show the exact source frame while paused (works before the proxy exists)"], ["Ctrl+wheel", "zoom the thumbnails"], ["Delete", "remove the selected clip"]] as const).map(([k, v]) => <><span className="kbd">{k}</span><span>{v}</span></>)}
+              {([["Space", "play / pause"], ["J / K / L", "shuttle back / pause / shuttle forward (press again for faster)"], ["Shift+J / Shift+L", "slow shuttle: quarter speed, then half"], ["← →", "one frame; hold to accelerate; Shift = one second; Ctrl = ten seconds"], ["two-finger swipe", "jog over the picture; slow for single frames, flick for seconds (Shift+wheel with a mouse)"], ["I / O", "set in / out at the playhead"], ["Enter", "add the in–out range as a clip"], ["Esc", "clear in / out and selection"], ["[ ]", "previous / next marker"], ["M", "drop a marker at the playhead"], ["S", "still: sets the clip's still, adds an extra one if it has one, or marks the frame for the next clip"], ["Shift+S", "save this frame as a named still"], ["F", "show the exact source frame while paused (works before the proxy exists)"], ["Ctrl+wheel", "zoom the thumbnails"], ["Delete", "remove the selected clip"]] as const).map(([k, v]) => <><span className="kbd">{k}</span><span>{v}</span></>)}
             </div>
           </div>
         </div>
