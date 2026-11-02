@@ -28,7 +28,7 @@ from .timecode import frames_to_seconds
 
 @dataclass
 class ProxySettings:
-    height: int = 1080
+    height: int = 720                # the colour conversion is CPU-bound and scales with pixels: 720p is ~1.7x faster
     bitrate: str = "8M"
     sdr: bool = True
     hevc: bool = False          # HEVC halves the size but plays in fewer places
@@ -69,12 +69,12 @@ def pick_encoder(settings: ProxySettings) -> tuple[str, list[str]]:
 def _video_chain(info: MediaInfo, settings: ProxySettings, encoder: str) -> tuple[str, list[str]]:
     caps = capabilities()
     parts: list[str] = []
-    if settings.height and settings.height < info.height:
-        parts.append(f"scale=-2:{settings.height}")
     if settings.sdr:
-        parts += [sdr_filter(info, caps), SDR_TAG_FILTER]
+        parts += [sdr_filter(info, caps, height=settings.height), SDR_TAG_FILTER]
         tags = SDR_TAG_ARGS
     else:
+        if settings.height and settings.height < info.height:
+            parts.append(f"scale=-2:{settings.height}")
         pix = "p010le" if encoder.endswith(("nvenc", "videotoolbox")) else "yuv420p10le"
         parts.append(f"format={pix}")
         if info.is_hlg:

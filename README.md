@@ -133,6 +133,17 @@ Homebrew's ffmpeg carries zimg, ProRes and the VideoToolbox encoders. On
 Apple Silicon the proxy encodes on the media engine (h264_videotoolbox) and
 ProRes on prores_videotoolbox; the software encoders are the fallback.
 
+**Proxy speed on a Mac.** The HLG to SDR conversion through the LUT is the
+cost, not the decode or the encode: on an M2 Max the 4:2:2 10-bit decode runs
+at 12x realtime but the LUT chain at 1080p runs at 2.6x (about 2 h 20 for a
+six-hour game) and at 720p at 4.2x (about 85 min). The proxy is therefore 720p
+by default (the downscale happens inside the first zscale pass, before the
+LUT); pick 1080p in the Scan panel or with `--height 1080` when the proxy must
+double as a render source. `reelquick proxy ... --jobs 3` cuts the time
+further by encoding three stretches at once, at the cost of the playlist
+growing in order while it runs. libplacebo cannot help on macOS: ffmpeg only
+drives it through Vulkan, which has no device there.
+
 ## Running the engine (Windows, Mac, Linux)
 
 Needs an ffmpeg build with `prores_ks`, `zscale` and `tonemap` (the gyan.dev

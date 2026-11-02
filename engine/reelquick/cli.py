@@ -249,7 +249,7 @@ def filmstrip(src: str, out_dir: str, interval: float, width: int, workers: int,
 @main.command()
 @click.argument("src", type=click.Path(exists=True, dir_okay=False))
 @click.argument("out", type=click.Path(dir_okay=False))
-@click.option("--height", default=1080, show_default=True)
+@click.option("--height", default=720, show_default=True, help="Proxy height; 1080 costs about 1.7x the time.")
 @click.option("--bitrate", default="8M", show_default=True)
 @click.option("--hlg", is_flag=True, help="Keep HDR instead of tone-mapping to SDR.")
 @click.option("--hevc", is_flag=True, help="HEVC instead of H.264 (smaller, plays in fewer places).")

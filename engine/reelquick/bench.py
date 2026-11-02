@@ -61,10 +61,10 @@ def pipelines(info: MediaInfo, seconds: float, at: float) -> list[tuple[str, lis
                      [*seek, *cuda_frames, "-i", src, *dur, "-map", v, "-vf", "scale_cuda=format=nv12", *enc, *null]))
     runs += [
         (f"CPU decode + {lut_name} 1080p", [*seek, "-i", src, *dur, "-map", v, "-vf", sdr, *null]),
-        (f"CPU decode + {lut_name} 720p", [*seek, "-i", src, *dur, "-map", v, "-vf", f"scale=-2:720,{sdr}", *null]),
+        (f"CPU decode + {lut_name} 720p", [*seek, "-i", src, *dur, "-map", v, "-vf", sdr_filter(info, caps, height=720), *null]),
         (f"CPU dec + {lut_name} + {enc_name} 1080p", [*seek, "-i", src, *dur, "-map", v, "-vf", sdr, *enc, *null]),
         (f"CPU dec + {lut_name} + {enc_name} 720p",
-         [*seek, "-i", src, *dur, "-map", v, "-vf", f"scale=-2:720,{sdr}", *enc, *null]),
+         [*seek, "-i", src, *dur, "-map", v, "-vf", sdr_filter(info, caps, height=720), *enc, *null]),
         (f"CPU dec + {lut_name} + libx264 1080p",
          [*seek, "-i", src, *dur, "-map", v, "-vf", sdr, "-c:v", "libx264", "-preset", "veryfast", "-crf", "21", *null]),
     ]
@@ -170,9 +170,7 @@ def run_parallel_bench(info: MediaInfo, jobs: int, seconds: float = 30.0, at: fl
     caps = capabilities()
     if at is None:
         at = min(3600.0, max(0.0, info.duration / 2))
-    sdr = sdr_filter(info, caps)
-    if height and height < info.height:
-        sdr = f"scale=-2:{height},{sdr}"
+    sdr = sdr_filter(info, caps, height=height)
     enc = NVENC if encoder_works("h264_nvenc") else ["-c:v", "libx264", "-preset", "veryfast", "-crf", "21"]
     v = f"0:{info.video_stream_index}"
     procs = []

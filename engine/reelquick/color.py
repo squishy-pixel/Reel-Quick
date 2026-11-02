@@ -162,8 +162,11 @@ def _levels(lo_in: float, hi_in: float, lo_out: float, hi_out: float) -> str:
     return f"colorlevels={ins}:{outs}"
 
 
-def lut_filter(info: MediaInfo, lut: Lut, bake: bool = True) -> str:
+def lut_filter(info: MediaInfo, lut: Lut, bake: bool = True, height: int | None = None) -> str:
     """YCbCr (as tagged) -> R'G'B' -> 3D LUT -> BT.709 YCbCr 4:2:0.
+
+    `height` downscales inside the first zscale pass (one resample, before the
+    LUT), which beats a separate scale filter in front of the chain.
 
     zscale always hands over full-range RGB (0.0 = legal black, 1.0 = legal
     white). A LUT built on 10-bit code values ('narrow', the broadcast norm,
@@ -175,8 +178,9 @@ def lut_filter(info: MediaInfo, lut: Lut, bake: bool = True) -> str:
     matrix_in = info.color_space or "bt2020nc"
     trc_in = info.color_transfer or "arib-std-b67"
     prim_in = info.color_primaries or "bt2020"
+    size = f"w=-2:h={height}:" if height and height < info.height else ""
     parts = [
-        f"zscale=tin={trc_in}:pin={prim_in}:min={matrix_in}:rin=tv:t={trc_in}:p={prim_in}:m=gbr:r=pc",
+        f"zscale={size}tin={trc_in}:pin={prim_in}:min={matrix_in}:rin=tv:t={trc_in}:p={prim_in}:m=gbr:r=pc",
         "format=gbrpf32le",
     ]
     path = lut.path
@@ -234,15 +238,17 @@ def deinterlace_prefix(info: MediaInfo) -> str:
     return "bwdif=mode=send_frame," if info.interlaced else ""
 
 
-def sdr_filter(info: MediaInfo, caps: Capabilities, peak_nits: int = 1000) -> str:
-    """Filter chain that turns the source into BT.709 SDR 8-bit 4:2:0 progressive."""
+def sdr_filter(info: MediaInfo, caps: Capabilities, peak_nits: int = 1000, height: int | None = None) -> str:
+    """Filter chain that turns the source into BT.709 SDR 8-bit 4:2:0 progressive, downscaled to
+    `height` when given. The conversion is the costly part, so it always runs on the small picture."""
     pre = deinterlace_prefix(info)
+    scale = f"scale=-2:{height}," if height and height < info.height else ""
     if not info.is_hdr:
-        return pre + "format=yuv420p"
+        return pre + scale + "format=yuv420p"
     lut = active_lut()
     if lut is not None:
-        return pre + lut_filter(info, lut)
-    return pre + builtin_sdr_filter(info, caps, peak_nits)
+        return pre + lut_filter(info, lut, height=height)
+    return pre + scale + builtin_sdr_filter(info, caps, peak_nits)
 
 
 def thumbnail_filter(info: MediaInfo, caps: Capabilities, width: int) -> str:
