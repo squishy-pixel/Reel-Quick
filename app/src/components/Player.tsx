@@ -67,9 +67,12 @@ export const Player = forwardRef<PlayerHandle, {
   useEffect(() => {
     const v = video.current; if (!v || !proxyUrl) return;
     let hls: Hls | null = null;
-    // hls.js wherever Media Source Extensions exist (Chromium, Safari on the Mac); native only where they
-    // do not (iPad Safari). canPlayType is not trusted: Chromium answers "maybe" and then plays nothing.
-    if (proxyUrl.endsWith(".m3u8") && Hls.isSupported()) {
+    // Safari (and the Mac app window, which is WebKit) gets its own built-in HLS player: it is the
+    // reference implementation and handles a growing playlist well. Everything else gets hls.js.
+    // canPlayType alone is not trusted: Chromium answers "maybe" for HLS and then plays nothing.
+    const ua = navigator.userAgent;
+    const isSafari = /safari/i.test(ua) && !/chrome|chromium|crios|edg|opr|android/i.test(ua);
+    if (proxyUrl.endsWith(".m3u8") && !isSafari && Hls.isSupported()) {
       hls = new Hls({ startPosition: 0, liveDurationInfinity: false, maxBufferLength: 20, backBufferLength: 30 });
       hls.loadSource(proxyUrl);
       hls.attachMedia(v);
