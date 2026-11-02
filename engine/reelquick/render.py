@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from fractions import Fraction
+
 import threading
 from dataclasses import dataclass, field
 from enum import Enum
@@ -62,7 +64,7 @@ def build_render_args(info: MediaInfo, spec: ClipSpec, out_path: Path, allow_hw:
     start, end = spec.padded(info.nb_frames)
     n = end - start
     duration = frames_to_seconds(n, rate)
-    start_sec = frames_to_seconds(start, rate)
+    start_sec = frames_to_seconds(start, rate) + Fraction(info.video_start).limit_denominator(1_000_000)
     clip_tc = frames_to_tc(info.start_frames + start, rate, info.drop_frame)
     caps = capabilities()
 

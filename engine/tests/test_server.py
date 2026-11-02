@@ -81,7 +81,15 @@ def test_filmstrip_proxy_render_jobs(client, tmp_path):
     job = client.post("/api/jobs/proxy", json={"height": 360}).json()
     done = _wait(client, job["id"])
     assert done["status"] == "done", done
-    assert client.get("/api/state").json()["workspace"]["has_proxy"] is True
+    wsd = client.get("/api/state").json()["workspace"]
+    assert wsd["has_proxy"] is True and wsd["proxy_url"] == "/media/proxy/index.m3u8" and wsd["proxy_complete"] is True
+    assert abs(wsd["proxy_available_seconds"] - 6.0) < 0.6
+    assert 0.0 <= wsd["proxy_start_offset"] < 0.05
+    pl = client.get("/media/proxy/index.m3u8")
+    assert pl.status_code == 200 and pl.headers["content-type"].startswith("application/vnd.apple.mpegurl")
+    seg = next(l for l in pl.text.splitlines() if l.endswith(".m4s"))
+    assert client.get(f"/media/proxy/{seg}").status_code == 200
+    assert client.get("/media/proxy/init.mp4").headers["content-type"].startswith("video/mp4")
     r = client.get("/media/proxy.mp4", headers={"Range": "bytes=0-99"})
     assert r.status_code == 206 and len(r.content) == 100 and r.headers["Content-Range"].startswith("bytes 0-99/")
     assert client.get("/media/proxy.mp4").status_code == 200

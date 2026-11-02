@@ -8,6 +8,8 @@ grade.
 
 from __future__ import annotations
 
+from fractions import Fraction
+
 from pathlib import Path
 
 from .color import sdr_filter
@@ -33,7 +35,7 @@ def still_args(info: MediaInfo, frame: int, out_path: Path, fmt: str = "png", hd
         parts.append(sdr_filter(info, capabilities()).replace("format=yuv420p", "format=rgb24"))
     tc = frames_to_tc(info.start_frames + frame, info.rate, info.drop_frame)
     args = [
-        "-ss", fmt_seconds(frames_to_seconds(frame, info.rate)),
+        "-ss", fmt_seconds(frames_to_seconds(frame, info.rate) + Fraction(info.video_start).limit_denominator(1_000_000)),
         "-i", info.path,
         "-map", f"0:{info.video_stream_index}",
         "-frames:v", "1",

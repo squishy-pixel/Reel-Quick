@@ -82,9 +82,14 @@ clip's list renders from the same in and out, so the two never disagree.
 content, or pick one. It lands in `stills/` next to the clips with the same
 name as the clip. Any other frame can be saved with a hand-typed name.
 
-**The proxy doubles as the reference MP4.** One render, two uses: scrubbing in
-the app, and the plain copy of the show you keep anyway. Keyframe every second
-for fast seeking.
+**The proxy is a playlist first, an MP4 second.** The encode writes HLS
+(four-second fragmented segments plus a playlist that grows while the render
+runs), so the app can scrub the first hour while the sixth is still encoding,
+Safari plays it natively, and there is no giant index to fetch before the
+first frame. The same packets are then remuxed into a single reference MP4
+with no second encode. No B-frames in the proxy, and the engine measures the
+small start offset the segments carry so frame N of the proxy is frame N of
+the source in every player.
 
 **Seek points are floored to the microsecond.** ffmpeg keeps the first packet
 at or after `-ss`, in copy and transcode alike. Flooring never loses the first

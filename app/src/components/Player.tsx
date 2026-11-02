@@ -1,4 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import Hls from "hls.js";
 import type { MediaInfo } from "../api";
 
 export interface PlayerHandle {
@@ -14,9 +15,15 @@ export const Player = forwardRef<PlayerHandle, {
   info: MediaInfo; proxyUrl: string | null; frame: number; onFrame: (f: number) => void; exactView: boolean;
   onStatus?: (s: { rate: number; mode: string }) => void;
   onError?: (message: string) => void;
-}>(function Player({ info, proxyUrl, frame, onFrame, exactView, onStatus, onError }, ref) {
+  startOffset?: number;      // seconds between the proxy's zero and its first video frame (AAC priming)
+}>(function Player({ info, proxyUrl, frame, onFrame, exactView, onStatus, onError, startOffset = 0 }, ref) {
   const video = useRef<HTMLVideoElement>(null);
   const fps = info.fps;
+  const off = startOffset;
+  // Callbacks live in refs so a parent re-render never tears the media pipeline down.
+  const onErrorRef = useRef(onError); onErrorRef.current = onError;
+  const onFrameRef = useRef(onFrame); onFrameRef.current = onFrame;
+  const onStatusRef = useRef(onStatus); onStatusRef.current = onStatus;
   const [rate, setRate] = useState(0);
   const reverse = useRef<number | null>(null);
   const [paused, setPaused] = useState(true);
@@ -26,12 +33,12 @@ export const Player = forwardRef<PlayerHandle, {
   useImperativeHandle(ref, () => ({
     seek(f) {
       const v = video.current; const clamped = Math.max(0, Math.min(info.nb_frames - 1, f));
-      onFrame(clamped);
-      if (v) { v.currentTime = (clamped + 0.3) / fps; }
+      onFrameRef.current(clamped);
+      if (v) { v.currentTime = off + (clamped + 0.3) / fps; }
     },
     play(r = 1) {
       const v = video.current; if (!v) return; stopReverse(); v.playbackRate = r; setRate(r);
-      v.play().catch((e: any) => { setRate(0); onError?.(`Playback refused: ${e?.name ?? "error"} ${e?.message ?? ""}`.trim()); });
+      v.play().catch((e: any) => { setRate(0); onErrorRef.current?.(`Playback refused: ${e?.name ?? "error"} ${e?.message ?? ""}`.trim()); });
     },
     pause() { const v = video.current; stopReverse(); setRate(0); v?.pause(); },
     toggle() { const v = video.current; if (!v) return; if (v.paused && !reverse.current) { this.play(1); } else { this.pause(); } },
@@ -53,14 +60,32 @@ export const Player = forwardRef<PlayerHandle, {
       reverse.current = requestAnimationFrame(tick);
     },
     playing() { const v = video.current; return !!v && (!v.paused || reverse.current !== null); },
-  }), [fps, info.nb_frames, rate, onFrame]);
+  }), [fps, info.nb_frames, rate, off]);
+
+  // Attach the source: a playlist through hls.js where the browser lacks native HLS (Chromium), natively
+  // where it has it (Safari, the Mac app window); a plain MP4 goes straight in.
+  useEffect(() => {
+    const v = video.current; if (!v || !proxyUrl) return;
+    let hls: Hls | null = null;
+    // hls.js wherever Media Source Extensions exist (Chromium, Safari on the Mac); native only where they
+    // do not (iPad Safari). canPlayType is not trusted: Chromium answers "maybe" and then plays nothing.
+    if (proxyUrl.endsWith(".m3u8") && Hls.isSupported()) {
+      hls = new Hls({ startPosition: 0, liveDurationInfinity: false, maxBufferLength: 20, backBufferLength: 30 });
+      hls.loadSource(proxyUrl);
+      hls.attachMedia(v);
+      hls.on(Hls.Events.ERROR, (_e, data) => { if (data.fatal) onErrorRef.current?.(`Proxy playback error: ${data.type} ${data.details}`); });
+    } else {
+      v.src = proxyUrl;
+    }
+    return () => { if (hls) hls.destroy(); else v.removeAttribute("src"); };
+  }, [proxyUrl]);
 
   // Report the frame under the playhead as precisely as the browser allows.
   useEffect(() => {
     const v = video.current; if (!v) return;
     let handle = 0;
     const anyV = v as HTMLVideoElement & { requestVideoFrameCallback?: (cb: (now: number, meta: { mediaTime: number }) => void) => number };
-    const report = (t: number) => onFrame(Math.min(info.nb_frames - 1, Math.floor(t * fps + 1e-4)));
+    const report = (t: number) => onFrameRef.current(Math.max(0, Math.min(info.nb_frames - 1, Math.floor((t - off) * fps + 1e-4))));
     if (anyV.requestVideoFrameCallback) {
       const loop = (_: number, meta: { mediaTime: number }) => { report(meta.mediaTime); handle = anyV.requestVideoFrameCallback!(loop); };
       handle = anyV.requestVideoFrameCallback(loop);
@@ -73,23 +98,23 @@ export const Player = forwardRef<PlayerHandle, {
     const onErr = () => {
       const codes: Record<number, string> = { 1: "aborted", 2: "network error", 3: "decode error", 4: "source not supported" };
       const err = v.error;
-      onError?.(`Video ${err ? codes[err.code] ?? `error ${err.code}` : "error"}${err?.message ? `: ${err.message}` : ""} (${proxyUrl})`);
+      onErrorRef.current?.(`Video ${err ? codes[err.code] ?? `error ${err.code}` : "error"}${err?.message ? `: ${err.message}` : ""} (${proxyUrl})`);
     };
     v.addEventListener("error", onErr);
-    const onStalled = () => onError?.("Video stalled waiting for data from the proxy");
+    const onStalled = () => onErrorRef.current?.("Video stalled waiting for data from the proxy");
     v.addEventListener("stalled", onStalled);
     return () => { v.removeEventListener("timeupdate", onTime); v.removeEventListener("seeked", onTime); v.removeEventListener("play", onPlay); v.removeEventListener("pause", onPause); v.removeEventListener("error", onErr); v.removeEventListener("stalled", onStalled); if (handle && (v as any).cancelVideoFrameCallback) (v as any).cancelVideoFrameCallback(handle); };
-  }, [proxyUrl, fps, info.nb_frames, onFrame, onError]);
+  }, [proxyUrl, fps, info.nb_frames, off]);
 
   const showExact = exactView && paused && rate === 0;
   // The transport bar shows rate and mode; nothing is drawn over the picture.
-  useEffect(() => { onStatus?.({ rate, mode: showExact ? "source frame" : proxyUrl ? "proxy" : "no video" }); }, [rate, showExact, proxyUrl, onStatus]);
+  useEffect(() => { onStatusRef.current?.({ rate, mode: showExact ? "source frame" : proxyUrl ? "proxy" : "no video" }); }, [rate, showExact, proxyUrl]);
 
   return (
     <div className="player">
       <div className="stage">
         {proxyUrl ? (
-          <video ref={video} src={proxyUrl} preload="auto" playsInline style={{ display: showExact ? "none" : "block" }} />
+          <video ref={video} preload="auto" playsInline style={{ display: showExact ? "none" : "block" }} />
         ) : !showExact ? (
           <div className="nothing hatch" style={{ padding: "40px 60px" }}>
             <div className="caps accent">No proxy yet</div>

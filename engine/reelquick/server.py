@@ -465,6 +465,18 @@ def create_app(session: Session | None = None) -> FastAPI:
             raise HTTPException(404, "no proxy yet")
         return FileResponse(w.proxy_path, media_type="video/mp4", headers={"Cache-Control": "no-cache"})
 
+    @app.get("/media/proxy/{name}")
+    def proxy_hls(name: str):
+        """Playlist and segments. The playlist changes while the encode runs, so it is never cached."""
+        w = ws()
+        p = w.root / "proxy" / Path(name).name
+        if not p.is_file():
+            raise HTTPException(404)
+        if p.suffix == ".m3u8":
+            return FileResponse(p, media_type="application/vnd.apple.mpegurl", headers={"Cache-Control": "no-store"})
+        mt = "video/mp4" if p.suffix == ".mp4" else "video/iso.segment"
+        return FileResponse(p, media_type=mt, headers={"Cache-Control": "max-age=86400"})
+
     @app.get("/api/filmstrip")
     def filmstrip_index():
         w = ws()
@@ -545,14 +557,28 @@ def create_app(session: Session | None = None) -> FastAPI:
                                  audio_tracks=tuple(w.project.settings.audio_tracks) or None)
 
         def run(progress, cancel):
-            # Write under a temporary name so a half-built proxy never counts as ready.
-            tmp = w.proxy_path.with_name("proxy.partial.mp4")
+            # The playlist grows in place so the first hour can be scrubbed while the sixth renders.
+            # A rebuild over an existing proxy builds beside it and swaps in at the end.
+            existing = w.has_proxy()
+            target = w.proxy_path.with_name("proxy.new.mp4") if existing else w.proxy_path
             try:
-                build_proxy(info, tmp, settings, on_progress=lambda f, d: progress(f, d), cancel=cancel)
-                tmp.replace(w.proxy_path)
-            finally:
-                tmp.unlink(missing_ok=True)
-            return {"path": str(w.proxy_path), "size": w.proxy_path.stat().st_size}
+                build_proxy(info, target, settings, on_progress=lambda f, d: progress(f, d), cancel=cancel)
+            except Exception:
+                if existing:
+                    import shutil
+                    shutil.rmtree(target.with_suffix(""), ignore_errors=True)
+                    target.unlink(missing_ok=True)
+                raise
+            if existing:
+                import shutil
+                shutil.rmtree(w.proxy_path.with_suffix(""), ignore_errors=True)
+                w.proxy_path.unlink(missing_ok=True)
+                if target.with_suffix("").is_dir():
+                    target.with_suffix("").rename(w.proxy_path.with_suffix(""))
+                if target.exists():
+                    target.replace(w.proxy_path)
+            size = w.proxy_path.stat().st_size if w.proxy_path.exists() else 0
+            return {"path": str(w.proxy_path), "size": size, "playlist": str(w.proxy_playlist) if w.proxy_playlist.exists() else None}
 
         try:
             job = jobs.start("proxy", "Proxy", run)

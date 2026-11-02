@@ -8,6 +8,8 @@ the frames feed the detector.
 
 from __future__ import annotations
 
+from fractions import Fraction
+
 import json
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -41,7 +43,7 @@ class FilmstripIndex:
 
 def thumbnail_at(info: MediaInfo, frame: int, out_path: Path, width: int, use_hw: bool = False) -> None:
     """Grab a single frame as JPEG."""
-    seek = frames_to_seconds(frame, info.rate)
+    seek = frames_to_seconds(frame, info.rate) + Fraction(info.video_start).limit_denominator(1_000_000)
     vf = thumbnail_filter(info, capabilities(), width)
     args: list[str] = []
     if use_hw:

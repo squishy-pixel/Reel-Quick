@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .filmstrip import INDEX_NAME, load_filmstrip
+from .proxy import hls_available_seconds, hls_complete, video_start_offset
 from .naming import GameInfo
 from .probe import probe
 from .project import Project
@@ -55,6 +56,38 @@ class Workspace:
         return self.root / "proxy.mp4"
 
     @property
+    def proxy_playlist(self) -> Path:
+        return self.root / "proxy" / "index.m3u8"
+
+    def has_hls(self) -> bool:
+        return self.proxy_playlist.exists() and hls_available_seconds(self.proxy_playlist) > 0
+
+    def proxy_url(self) -> str | None:
+        if self.has_hls():
+            return "/media/proxy/index.m3u8"
+        if self.proxy_path.exists() and self.proxy_path.stat().st_size > 0:
+            return "/media/proxy.mp4"
+        return None
+
+    _offset_cache: tuple[str, float, float] | None = None
+
+    def proxy_start_offset(self) -> float:
+        """First video frame's time in the file the player is given (cached per file and mtime)."""
+        url = self.proxy_url()
+        if not url:
+            return 0.0
+        path = self.proxy_playlist if url.endswith(".m3u8") else self.proxy_path
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            return 0.0
+        if self._offset_cache and self._offset_cache[0] == str(path) and self._offset_cache[1] == mtime:
+            return self._offset_cache[2]
+        off = video_start_offset(path)
+        self._offset_cache = (str(path), mtime, off)
+        return off
+
+    @property
     def clips_dir(self) -> Path:
         return Path(self.project.settings.output_dir) if self.project.settings.output_dir else self.root / "clips"
 
@@ -72,7 +105,8 @@ class Workspace:
         return (self.strip_dir / INDEX_NAME).exists()
 
     def has_proxy(self) -> bool:
-        return self.proxy_path.exists() and self.proxy_path.stat().st_size > 0
+        """A playable proxy exists: a finished MP4, or a playlist with at least one segment."""
+        return (self.proxy_path.exists() and self.proxy_path.stat().st_size > 0) or self.has_hls()
 
     def filmstrip_index(self):
         return load_filmstrip(self.strip_dir)
@@ -88,9 +122,8 @@ class Workspace:
         """MediaInfo to cut from: the source when it is there, else the proxy."""
         if self.recheck_source():
             return self.project.info, "source"
-        if self.has_proxy():
-            info = probe(self.proxy_path)
-            return info, "proxy"
+        if self.proxy_path.exists() and self.proxy_path.stat().st_size > 0:
+            return probe(self.proxy_path), "proxy"
         raise FileNotFoundError("neither the original recording nor a proxy is available")
 
     def status(self) -> dict:
@@ -101,7 +134,12 @@ class Workspace:
             "project_path": str(self.project_path),
             "has_filmstrip": self.has_filmstrip(),
             "has_proxy": self.has_proxy(),
-            "proxy_url": "/media/proxy.mp4" if self.has_proxy() else None,
+            "proxy_url": self.proxy_url(),
+            "proxy_start_offset": self.proxy_start_offset(),
+            "proxy_complete": (self.proxy_path.exists() and self.proxy_path.stat().st_size > 0)
+                              or (self.proxy_playlist.exists() and hls_complete(self.proxy_playlist)),
+            "proxy_available_seconds": hls_available_seconds(self.proxy_playlist) if self.proxy_playlist.exists() else
+                                       (self.project.info.duration if self.proxy_path.exists() else 0.0),
             "clips_dir": str(self.clips_dir),
         }
 

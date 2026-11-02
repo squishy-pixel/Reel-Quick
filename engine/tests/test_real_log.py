@@ -123,4 +123,7 @@ def test_library_name_parsing():
     assert m["shell"] == "Booth" and m["note"] == "" and m["source_frame"] == 255048
     m = parse_name(Path("2025WKWC-DENvsCHI_BaseballCard_02_01122631.mov"))
     assert m["game"] == "2025WKWC-DENvsCHI" and m["shell"] == "Player Card"
+    m = parse_name(Path("2025WK17-DENvsKC-Christmas_Booth_01_00000000.mov"))
+    assert m["game"] == "2025WK17-DENvsKC-Christmas" and m["shell"] == "Booth"
+    assert parse_name(Path("2025WK05-SFvsLAR_Senic_01_00491772.mov"))["shell"] == "Scenic Comp"
     assert parse_name(Path("random.mov")) is None

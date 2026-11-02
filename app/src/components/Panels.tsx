@@ -35,7 +35,7 @@ export function JobsPanel({ state, onFilmstrip, onProxy, onCancel, onAudioTracks
           {running ? (
             <>
               <div className="bar"><i style={{ width: `${job!.progress * 100}%` }} /></div>
-              <div className="status num">{Math.round(job!.progress * 100)}% · {clockText(job!.elapsed)} elapsed{job!.eta != null ? ` · ${clockText(job!.eta)} left` : ""}{job!.detail?.stage === "join" ? " · joining" : ""}</div>
+              <div className="status num">{Math.round(job!.progress * 100)}% · {clockText(job!.elapsed)} elapsed{job!.eta != null ? ` · ${clockText(job!.eta)} left` : ""}{job!.detail?.stage === "join" ? " · joining" : job!.detail?.stage === "mp4" ? " · writing reference MP4" : ""}{name === "Proxy" && ws.proxy_available_seconds > 0 && !ws.proxy_complete ? ` · ${clockText(ws.proxy_available_seconds)} playable` : ""}</div>
             </>
           ) : job?.status === "failed" ? (
             <div className="status" style={{ color: "var(--red)" }} title={job.error ?? ""}>failed: {job.error?.slice(0, 80)}</div>
@@ -51,7 +51,7 @@ export function JobsPanel({ state, onFilmstrip, onProxy, onCancel, onAudioTracks
       <div className="panel-head"><h2>Scan</h2><span className="dim" style={{ fontSize: 10 }}>{state.engine.lut ? `LUT ${state.engine.lut.name}` : "built-in SDR"}{state.engine.nvenc ? " · NVENC" : ""}</span></div>
       <Row name="Filmstrip" job={fs} ready={ws.has_filmstrip} readyText={`ready · rebuild ≈ ${estimate("filmstrip", duration)}`}
         actions={<button className="btn small" title={`About ${estimate("filmstrip", duration)}`} onClick={() => confirmThen("filmstrip", ws.has_filmstrip, "Thumbnails are replaced as it goes; stopping keeps what is done.", () => onFilmstrip(ws.has_filmstrip))}>{ws.has_filmstrip ? "Rebuild" : `Build ≈ ${estimate("filmstrip", duration)}`}</button>} />
-      <Row name="Proxy" job={px} ready={ws.has_proxy} readyText={`ready · rebuild ≈ ${estimate("proxy", duration)}`} actions={<>
+      <Row name="Proxy" job={px} ready={ws.has_proxy} readyText={ws.proxy_complete ? `ready · rebuild ≈ ${estimate("proxy", duration)}` : `${clockText(ws.proxy_available_seconds)} playable so far`} actions={<>
         <select className="text" style={{ padding: "2px 4px", fontSize: 10 }} value={height} onChange={(e) => setHeight(Number(e.target.value))}><option value={1080}>1080p</option><option value={720}>720p</option></select>
         <button className="btn small" title={`About ${estimate("proxy", duration)}`} onClick={() => confirmThen("proxy", ws.has_proxy, "The current proxy stays in place until the new one has finished.", () => onProxy(height))}>{ws.has_proxy ? "Rebuild" : `Build ≈ ${estimate("proxy", duration)}`}</button></>} />
       <div className="jobrow">

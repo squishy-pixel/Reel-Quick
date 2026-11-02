@@ -37,6 +37,9 @@ class ProxySettings:
     hw_decode: bool = False          # CUDA decode; off by default, it measured slower than CPU on 4:2:2 intra
     keyint_seconds: float = 1.0
     jobs: int = 1                    # concurrent segment encoders
+    hls: bool = True                 # write a segmented playlist the browser can play while it grows
+    hls_segment_seconds: float = 4.0
+    also_mp4: bool = True            # keep a single reference MP4 next to it (remuxed, no second encode)
 
 
 def pick_encoder(settings: ProxySettings) -> tuple[str, list[str]]:
@@ -44,20 +47,22 @@ def pick_encoder(settings: ProxySettings) -> tuple[str, list[str]]:
     if settings.hevc:
         if settings.prefer_gpu and encoder_works("hevc_nvenc"):
             return "hevc_nvenc", ["-preset", "p4", "-rc", "vbr", "-cq", "26", "-b:v", settings.bitrate,
-                                  "-maxrate", settings.bitrate, "-bf", "2", "-tag:v", "hvc1"]
+                                  "-maxrate", settings.bitrate, "-bf", "0", "-tag:v", "hvc1"]
         if settings.prefer_gpu and encoder_works("hevc_videotoolbox"):
-            return "hevc_videotoolbox", ["-b:v", settings.bitrate, "-maxrate", settings.bitrate, "-tag:v", "hvc1", "-allow_sw", "1"]
+            return "hevc_videotoolbox", ["-b:v", settings.bitrate, "-maxrate", settings.bitrate, "-tag:v", "hvc1", "-allow_sw", "1", "-bf", "0"]
         if caps.has_encoder("libx265"):
-            return "libx265", ["-preset", "fast", "-crf", "24", "-tag:v", "hvc1"]
+            return "libx265", ["-preset", "fast", "-crf", "24", "-tag:v", "hvc1", "-x265-params", "bframes=0"]
     if settings.prefer_gpu and encoder_works("h264_nvenc"):
+        # No B-frames anywhere in the proxy: timestamps then start at zero in the HLS segments as well as
+        # the MP4, so frame N of the proxy is frame N of the source, and seeks land faster.
         return "h264_nvenc", ["-preset", "p4", "-rc", "vbr", "-cq", "23", "-b:v", settings.bitrate,
-                              "-maxrate", settings.bitrate, "-bf", "2"]
+                              "-maxrate", settings.bitrate, "-bf", "0"]
     if settings.prefer_gpu and encoder_works("h264_videotoolbox"):
         # Apple Silicon media engine: fast, and the quality knob is a bitrate.
-        return "h264_videotoolbox", ["-b:v", settings.bitrate, "-maxrate", settings.bitrate, "-allow_sw", "1"]
+        return "h264_videotoolbox", ["-b:v", settings.bitrate, "-maxrate", settings.bitrate, "-allow_sw", "1", "-bf", "0"]
     if caps.has_encoder("libx264"):
         return "libx264", ["-preset", "veryfast", "-crf", "21", "-maxrate", settings.bitrate,
-                           "-bufsize", settings.bitrate]
+                           "-bufsize", settings.bitrate, "-bf", "0"]
     raise FfmpegError(["proxy"], -1, "no usable H.264 encoder in this ffmpeg build")
 
 
@@ -78,9 +83,28 @@ def _video_chain(info: MediaInfo, settings: ProxySettings, encoder: str) -> tupl
     return ",".join(p for p in parts if p), tags
 
 
+def _hls_output_args(settings: ProxySettings, playlist: Path) -> list[str]:
+    """fMP4 HLS, event playlist (appended while encoding), every segment starting on a keyframe."""
+    seg_dir = playlist.parent
+    return [
+        "-f", "hls",
+        "-hls_time", fmt_seconds(settings.hls_segment_seconds),
+        "-hls_playlist_type", "event",
+        "-hls_list_size", "0",
+        "-hls_segment_type", "fmp4",
+        "-hls_flags", "independent_segments+temp_file",
+        "-hls_fmp4_init_filename", "init.mp4",
+        "-hls_segment_filename", str(seg_dir / "seg%05d.m4s"),
+        str(playlist),
+    ]
+
+
 def _encode_args(info: MediaInfo, settings: ProxySettings, start_frame: int, n_frames: int,
-                 out_path: Path, audio_codec: list[str], hwdecode: bool, final: bool) -> list[str]:
-    """ffmpeg args for one span of the file. final=True adds the whole-file MP4 trimmings."""
+                 out_path: Path, audio_codec: list[str], hwdecode: bool, final: bool,
+                 hls_playlist: Path | None = None) -> list[str]:
+    """ffmpeg args for one span of the file. final=True adds the whole-file trimmings.
+
+    With hls_playlist set the output is a growing HLS playlist instead of out_path."""
     encoder, enc_args = pick_encoder(settings)
     rate = info.rate
     keyint = max(1, round(settings.keyint_seconds * float(rate.fps)))
@@ -103,12 +127,80 @@ def _encode_args(info: MediaInfo, settings: ProxySettings, start_frame: int, n_f
     args += ["-video_track_timescale", str(rate.num)]
     if tracks:
         args += audio_codec
+    if final and info.start_timecode:
+        args += ["-timecode", info.start_timecode]
+    if hls_playlist is not None:
+        args += _hls_output_args(settings, hls_playlist)
+        return args
     if final:
-        if info.start_timecode:
-            args += ["-timecode", info.start_timecode]
         args += ["-movflags", "+faststart"]
     args += [str(out_path)]
     return args
+
+
+def hls_playlist_for(mp4_path: Path) -> Path:
+    """The playlist that sits beside a proxy MP4: <dir>/proxy/index.m3u8 for <dir>/proxy.mp4."""
+    return mp4_path.with_suffix("") / "index.m3u8"
+
+
+def remux_hls_to_mp4(playlist: Path, out_path: Path, on_progress: ProgressFn | None = None,
+                     cancel: threading.Event | None = None, duration: float | None = None) -> Path:
+    """The reference MP4: same packets as the playlist, timestamps pulled back so video starts at zero
+    (the MP4 muxer then hides the AAC priming in an edit list, as a directly written MP4 would)."""
+    tmp = out_path.with_name(out_path.stem + ".partial" + out_path.suffix)
+    off = video_start_offset(playlist)
+    args = ["-allowed_extensions", "ALL", "-i", str(playlist)]
+    if off > 0:
+        args += ["-output_ts_offset", f"-{off:.6f}"]
+    args += ["-map", "0", "-c", "copy", "-movflags", "+faststart", str(tmp)]
+    run_ffmpeg(args, duration=duration, on_progress=on_progress, cancel=cancel)
+    tmp.replace(out_path)
+    return out_path
+
+
+def remux_mp4_to_hls(mp4_path: Path, playlist: Path, settings: ProxySettings, on_progress: ProgressFn | None = None,
+                     cancel: threading.Event | None = None, duration: float | None = None) -> Path:
+    playlist.parent.mkdir(parents=True, exist_ok=True)
+    run_ffmpeg(["-i", str(mp4_path), "-map", "0:v", "-map", "0:a?", "-c", "copy", *_hls_output_args(settings, playlist)],
+               duration=duration, on_progress=on_progress, cancel=cancel)
+    return playlist
+
+
+def hls_available_seconds(playlist: Path) -> float:
+    """Seconds of program the playlist already covers; grows while the encode runs."""
+    try:
+        total = 0.0
+        for line in playlist.read_text(encoding="utf-8", errors="ignore").splitlines():
+            if line.startswith("#EXTINF:"):
+                total += float(line[8:].split(",")[0])
+        return total
+    except (OSError, ValueError):
+        return 0.0
+
+
+def video_start_offset(path: Path) -> float:
+    """Seconds between the container's zero and its first video frame.
+
+    AAC priming puts the first audio packet at negative time; a plain MP4 hides
+    that with an edit list, a segmented playlist shifts everything instead, so
+    its first frame sits ~0.021 s in. The player subtracts this so frame N of the
+    proxy is frame N of the source whichever container it is playing.
+    """
+    from .ffmpeg import run_ffprobe
+    try:
+        data = run_ffprobe(["-allowed_extensions", "ALL", "-select_streams", "v:0", "-show_entries",
+                            "stream=start_time", str(path)])
+        st = (data.get("streams") or [{}])[0].get("start_time")
+        return max(0.0, float(st)) if st not in (None, "N/A") else 0.0
+    except Exception:
+        return 0.0
+
+
+def hls_complete(playlist: Path) -> bool:
+    try:
+        return "#EXT-X-ENDLIST" in playlist.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return False
 
 
 def _segments(nb_frames: int, jobs: int, keyint: int) -> list[tuple[int, int]]:
@@ -137,23 +229,45 @@ def build_proxy(
     caps = capabilities()
     hwdecode = bool(settings.hw_decode and caps.cuda_decode and info.codec in ("h264", "hevc"))
 
+    aac = ["-c:a", "aac", "-b:a", "192k"]
+    playlist = hls_playlist_for(out_path) if settings.hls else None
+    encode_share = 0.94 if (settings.hls and settings.also_mp4) else 1.0
+
+    def enc_progress(frac: float, d: dict) -> None:
+        if on_progress:
+            on_progress(frac * encode_share, {**d, "stage": "encode"})
+
     if settings.jobs <= 1:
-        aac = ["-c:a", "aac", "-b:a", "192k"]
+        if playlist is not None:
+            playlist.parent.mkdir(parents=True, exist_ok=True)
+            for old in playlist.parent.glob("*"):
+                old.unlink()
         attempts = [hwdecode, False] if hwdecode else [False]
         last: FfmpegError | None = None
         for hw in attempts:
             try:
-                run_ffmpeg(_encode_args(info, settings, 0, info.nb_frames, out_path, aac, hw, final=True),
-                           duration=info.duration, on_progress=on_progress, cancel=cancel)
-                return out_path
+                run_ffmpeg(_encode_args(info, settings, 0, info.nb_frames, out_path, aac, hw, final=True,
+                                        hls_playlist=playlist),
+                           duration=info.duration, on_progress=enc_progress, cancel=cancel)
+                break
             except FfmpegError as e:
                 last = e
                 if cancel is not None and cancel.is_set():
                     raise
-        assert last is not None
-        raise last
+        else:
+            assert last is not None
+            raise last
+        if playlist is not None and settings.also_mp4:
+            remux_hls_to_mp4(playlist, out_path, duration=info.duration, cancel=cancel,
+                             on_progress=lambda f, d: on_progress(encode_share + (1 - encode_share) * f, {"stage": "mp4"}) if on_progress else None)
+        return playlist if playlist is not None else out_path
 
-    return _build_segmented(info, out_path, settings, hwdecode, on_progress, cancel)
+    _build_segmented(info, out_path, settings, hwdecode, enc_progress, cancel)
+    if playlist is not None:
+        remux_mp4_to_hls(out_path, playlist, settings, duration=info.duration, cancel=cancel,
+                         on_progress=lambda f, d: on_progress(encode_share + (1 - encode_share) * f, {"stage": "hls"}) if on_progress else None)
+        return playlist
+    return out_path
 
 
 def _build_segmented(info: MediaInfo, out_path: Path, settings: ProxySettings, hwdecode: bool,

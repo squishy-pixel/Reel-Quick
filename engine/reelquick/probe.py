@@ -45,6 +45,8 @@ class MediaInfo:
     start_timecode: str | None
     audio: list[AudioTrack] = field(default_factory=list)
     field_order: str = "progressive"
+    frame_count: int | None = None     # exact count from the container when it carries one (MP4/MOV)
+    video_start: float = 0.0           # time of the first video frame; non-zero in some remuxed files
 
     @property
     def rate(self) -> FrameRate:
@@ -65,6 +67,8 @@ class MediaInfo:
 
     @property
     def nb_frames(self) -> int:
+        if self.frame_count:
+            return self.frame_count
         return round(Fraction(self.duration) * self.rate.fps)
 
     @property
@@ -137,7 +141,8 @@ def gop_is_intra(path: str | Path, stream_index: int, sample_frames: int = 240) 
 
 def probe(path: str | Path, check_gop: bool = True) -> MediaInfo:
     path = Path(path)
-    data = run_ffprobe(["-show_format", "-show_streams", str(path)])
+    extra = ["-allowed_extensions", "ALL"] if path.suffix.lower() == ".m3u8" else []
+    data = run_ffprobe([*extra, "-show_format", "-show_streams", str(path)])
     fmt = data.get("format", {})
     streams = data.get("streams", [])
     video = next((s for s in streams if s.get("codec_type") == "video"), None)
@@ -185,4 +190,6 @@ def probe(path: str | Path, check_gop: bool = True) -> MediaInfo:
         start_timecode=_find_timecode(fmt, streams),
         audio=audio,
         field_order=video.get("field_order") or "progressive",
+        frame_count=int(video["nb_frames"]) if str(video.get("nb_frames", "")).isdigit() and int(video["nb_frames"]) > 0 else None,
+        video_start=max(0.0, float(video["start_time"])) if str(video.get("start_time", "N/A")) not in ("N/A", "") else 0.0,
     )
