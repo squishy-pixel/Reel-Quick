@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -125,39 +125,6 @@ class RenderBody(BaseModel):
 
 
 # ---- helpers ------------------------------------------------------------------
-
-def _range_response(path: Path, request: Request) -> Response:
-    """Serve a file with HTTP range support so <video> can seek."""
-    size = path.stat().st_size
-    ctype = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
-    rng = request.headers.get("range")
-    if not rng:
-        return FileResponse(path, media_type=ctype, headers={"Accept-Ranges": "bytes"})
-    m = re.match(r"bytes=(\d*)-(\d*)", rng)
-    if not m:
-        raise HTTPException(416)
-    start = int(m.group(1)) if m.group(1) else max(0, size - int(m.group(2)))
-    end = int(m.group(2)) if m.group(2) and m.group(1) else size - 1
-    end = min(end, size - 1)
-    if start > end:
-        raise HTTPException(416)
-    length = end - start + 1
-
-    def body():
-        with path.open("rb") as f:
-            f.seek(start)
-            left = length
-            while left > 0:
-                chunk = f.read(min(1 << 20, left))
-                if not chunk:
-                    break
-                left -= len(chunk)
-                yield chunk
-
-    headers = {"Content-Range": f"bytes {start}-{end}/{size}", "Accept-Ranges": "bytes",
-               "Content-Length": str(length)}
-    return StreamingResponse(body(), status_code=206, media_type=ctype, headers=headers)
-
 
 def _list_dir(path: str | None) -> dict:
     """Minimal file browser for the in-app open dialog."""
@@ -490,11 +457,13 @@ def create_app(session: Session | None = None) -> FastAPI:
     # ---- media -----------------------------------------------------------
 
     @app.get("/media/proxy.mp4")
-    def proxy_media(request: Request):
+    def proxy_media():
+        """Starlette's FileResponse answers Range requests itself (206, Content-Range, Accept-Ranges),
+        which Safari in particular insists on for video; it also streams via sendfile."""
         w = ws()
         if not w.has_proxy():
             raise HTTPException(404, "no proxy yet")
-        return _range_response(w.proxy_path, request)
+        return FileResponse(w.proxy_path, media_type="video/mp4", headers={"Cache-Control": "no-cache"})
 
     @app.get("/api/filmstrip")
     def filmstrip_index():
