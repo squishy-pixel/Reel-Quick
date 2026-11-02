@@ -3,6 +3,7 @@ import { api, native, type AppState, type Clip, type FilmstripIndex, type Recent
 import { Filmstrip, THUMB_MAX, THUMB_MIN } from "./components/Filmstrip";
 import { Tc } from "./components/Tc";
 import { Player, type PlayerHandle } from "./components/Player";
+import { Shuttle } from "./components/Shuttle";
 import { ClipEditor, ClipList } from "./components/ClipList";
 import { AudioDialog, JobsPanel, ListsDialog, MarkersPanel, RenderPanel, learnRate } from "./components/Panels";
 import { FileDialog } from "./components/FileDialog";
@@ -23,6 +24,7 @@ export default function App() {
   const [pendingStill, setPendingStill] = useState<number | null>(null);
   const [recent, setRecent] = useState<Recent[]>([]);
   const [pstatus, setPstatus] = useState({ rate: 0, mode: "no video" });
+  const [reveal, setReveal] = useState<{ frame: number; n: number } | null>(null);
   // Fonts dropped in <work root>/fonts: Playoff takes over the numerals when present, as the brand guide asks.
   useEffect(() => {
     api.fonts().then((fonts) => {
@@ -69,6 +71,8 @@ export default function App() {
   const info = project?.info ?? null;
   const fps = info?.fps ?? 60000 / 1001;
   const seek = useCallback((f: number) => { player.current?.seek(f); }, []);
+  // A jump chosen from a list (clip, marker, still) also brings the strip there, whatever "follow" says.
+  const jumpTo = useCallback((f: number) => { player.current?.seek(f); setReveal((r) => ({ frame: f, n: (r?.n ?? 0) + 1 })); }, []);
   const selectedClip = useMemo(() => project?.clips.find((c) => c.id === selected) ?? null, [project, selected]);
   const renderJob = useMemo(() => [...(state?.jobs ?? [])].reverse().find((j) => j.kind === "render"), [state?.jobs]);
   const renderRows = useMemo(() => {
@@ -144,16 +148,15 @@ export default function App() {
     if (!project) return;
     const ms = project.markers.filter((m) => m.frame !== null).map((m) => m.frame as number);
     const target = dir > 0 ? ms.find((f) => f > frame + 1) : [...ms].reverse().find((f) => f < frame - 1);
-    if (target !== undefined) seek(target); else say(dir > 0 ? "No marker after this point" : "No marker before this point");
+    if (target !== undefined) jumpTo(target); else say(dir > 0 ? "No marker after this point" : "No marker before this point");
   };
+  // Every edit of the project (clips, in/out, stills, markers, lists, settings) can be taken back, and put back.
+  const undo = useCallback((redo = false) => {
+    if (!state?.history || !(redo ? state.history.redo : state.history.undo)) { say(redo ? "Nothing to redo" : "Nothing to undo"); return; }
+    run(redo ? api.redo() : api.undo(), (r) => say(`${redo ? "Redid" : "Undid"}: ${r.label}`));
+  }, [state?.history, run, say]);
 
   // ---- keyboard --------------------------------------------------------
-  const held = useRef({ key: "", count: 0 });
-  useEffect(() => {
-    const onUp = () => { held.current = { key: "", count: 0 }; };
-    window.addEventListener("keyup", onUp);
-    return () => window.removeEventListener("keyup", onUp);
-  }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
@@ -161,13 +164,11 @@ export default function App() {
       if (!project) return;
       const p = player.current;
       const step = (n: number) => { p?.pause(); seek(frame + n); };
-      // Holding an arrow accelerates: single frames, then a few, then quarter seconds, then whole seconds.
-      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-        held.current = held.current.key === e.key ? { key: e.key, count: held.current.count + 1 } : { key: e.key, count: 0 };
-      }
-      const n = held.current.count;
-      const ramp = n < 8 ? 1 : n < 20 ? 3 : n < 40 ? Math.round(fps / 4) : Math.round(fps);
-      const big = e.shiftKey ? Math.round(fps) : e.ctrlKey || e.metaKey ? Math.round(fps * 10) : ramp;
+      // Arrows: one frame; Shift a second; Ctrl / Cmd ten seconds. Hold for auto-repeat.
+      const big = e.shiftKey ? Math.round(fps) : e.ctrlKey || e.metaKey ? Math.round(fps * 10) : 1;
+      if ((e.metaKey || e.ctrlKey) && (e.key === "z" || e.key === "Z")) { e.preventDefault(); undo(e.shiftKey); return; }
+      if ((e.metaKey || e.ctrlKey) && (e.key === "y" || e.key === "Y")) { e.preventDefault(); undo(true); return; }
+      if (e.metaKey || e.ctrlKey) { if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return; }
       switch (e.key) {
         case " ": e.preventDefault(); p?.toggle(); break;
         case "k": case "K": p?.pause(); break;
@@ -196,7 +197,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [project, frame, fps, inPoint, outPoint, addClip, setStill, selectedClip, deleteClip, seek, run, say]);
+  }, [project, frame, fps, inPoint, outPoint, addClip, setStill, selectedClip, deleteClip, seek, jumpTo, run, say, undo]);
 
   const onFrame = useCallback((f: number) => { setFrame(f); }, []);
 
@@ -214,6 +215,12 @@ export default function App() {
             <GameFields key={ws!.source} game={project.game} onChange={(g) => run(api.game(g))} />
           </>
         ) : <div className="file dim">No file open</div>}
+        {project && (
+          <>
+            <button className="btn small" onClick={() => undo()} disabled={!state.history?.undo} title={state.history?.undo ? `Undo ${state.history.undo} (Cmd/Ctrl+Z)` : "Nothing to undo"}>↶ Undo</button>
+            <button className="btn small" onClick={() => undo(true)} disabled={!state.history?.redo} title={state.history?.redo ? `Redo ${state.history.redo} (Shift+Cmd/Ctrl+Z)` : "Nothing to redo"}>↷</button>
+          </>
+        )}
         <button className="btn" onClick={openFile} title="Open a different recording">Open recording…</button>
         <button className="btn small" onClick={() => setDialog({ kind: "lists" })} title="Edit the shell, camera, engine and segment lists">Lists</button>
         <button className="btn small" onClick={() => setDialog({ kind: "help" })} title="Keyboard shortcuts">?</button>
@@ -226,15 +233,14 @@ export default function App() {
             <div className="transport">
               <div className="readout">
                 <Tc value={tcOf(frame)} className="big" />
-                <span className="dim num" style={{ minWidth: 96 }}>{frame.toLocaleString()}</span>
-                <span className="dim caps" style={{ fontSize: 9, letterSpacing: "0.14em", minWidth: 70 }}>{pstatus.rate !== 0 ? <span className="accent">{pstatus.rate}x</span> : pstatus.mode}</span>
+                <span className="dim num" style={{ minWidth: 110 }} title="Frames from the start of the recording (frame 0 is the first frame of the file)">{frame.toLocaleString()}<span className="unit">fr</span></span>
+                <span className={`caps ${pstatus.mode === "not in proxy yet" ? "accent" : "dim"}`} style={{ fontSize: 9, letterSpacing: "0.14em", minWidth: 70, whiteSpace: "nowrap" }} title={pstatus.mode === "not in proxy yet" ? "The proxy has not been built this far yet: the picture is a source frame or the nearest filmstrip thumbnail, and play waits until the proxy reaches here." : undefined}>{pstatus.rate !== 0 ? <span className="accent">{pstatus.rate}×</span> : pstatus.mode}</span>
               </div>
-              <button className="btn small" onClick={() => player.current?.shuttle(-1)} title="J">◀◀</button>
               <button className="btn small" onClick={() => player.current?.toggle()} title="Space">▶ / ❚❚</button>
-              <button className="btn small" onClick={() => player.current?.shuttle(1)} title="L">▶▶</button>
+              <Shuttle rate={pstatus.rate} onRate={(r) => player.current?.setRate(r)} disabled={!ws!.proxy_url} />
               <span style={{ width: 10 }} />
-              <button className="btn small" onClick={() => nextMarker(-1)} title="[">◀ marker</button>
-              <button className="btn small" onClick={() => nextMarker(1)} title="]">marker ▶</button>
+              <button className="btn small" onClick={() => nextMarker(-1)} title="Previous marker  [">◀ mk</button>
+              <button className="btn small" onClick={() => nextMarker(1)} title="Next marker  ]">mk ▶</button>
               <span style={{ width: 10 }} />
               <div className={`mark ${inPoint !== null ? "set" : ""}`} onClick={() => setIn(frame)}><span className="k">In</span>{inPoint !== null ? <Tc value={tcOf(inPoint)} /> : <span className="tc">—</span>}</div>
               <div className={`mark ${outPoint !== null ? "set" : ""}`} onClick={() => setOut(frame)}><span className="k">Out</span>{outPoint !== null ? <Tc value={tcOf(outPoint)} /> : <span className="tc">—</span>}</div>
@@ -247,8 +253,9 @@ export default function App() {
             </div>
             <div className="strip-area">
               {strip ? (
-                <Filmstrip index={strip} nbFrames={info!.nb_frames} frame={frame} markers={project.markers} clips={project.clips}
-                  inPoint={inPoint} outPoint={outPoint} pendingStill={pendingStill} onSeek={seek} follow={follow} thumbW={thumbW} onThumbW={setThumbW} tcOf={tcOf} />
+                <Filmstrip index={strip} nbFrames={info!.nb_frames} fps={fps} frame={frame} markers={project.markers} clips={project.clips} selectedId={selected}
+                  inPoint={inPoint} outPoint={outPoint} pendingStill={pendingStill} onSeek={seek} follow={follow} reveal={reveal} thumbW={thumbW} onThumbW={setThumbW} tcOf={tcOf}
+                  proxySeconds={ws!.proxy_url ? ws!.proxy_available_seconds : 0} />
               ) : (
                 <div className="strip-empty hatch">
                   <span>No filmstrip yet.</span><button className="btn primary" onClick={() => run(api.startFilmstrip({}))}>Build filmstrip</button><span className="dim">About five minutes for a full game.</span>
@@ -288,15 +295,15 @@ export default function App() {
                 onAudioTracks={(t) => run(api.settings({ audio_tracks: t }), () => say("Stereo pair saved. Rebuild the proxy to hear it there."))}
                 onSurround={(sv) => run(api.settings(sv))}
                 onAudioPreview={() => { setDialog({ kind: "audio", tracks: null }); api.audioPreview(frame).then((r) => setDialog({ kind: "audio", tracks: r.tracks })).catch((e) => { setDialog(null); say(e.message, true); }); }} />
-              <MarkersPanel markers={project.markers} info={info!} onSeek={seek} onImport={importCsv} onDelete={(f) => run(api.deleteMarker(f))}
+              <MarkersPanel markers={project.markers} info={info!} onSeek={jumpTo} onImport={importCsv} onDelete={(f) => run(api.deleteMarker(f))}
                 onDeleteUntimed={(i) => run(api.deleteUntimed(i))}
                 offset={project.settings.log_offset_seconds} onOffset={(s) => run(api.settings({ log_offset_seconds: s }), () => say("Log clock saved. Import the log again to apply it."))} />
               <div className="panel-head" style={{ padding: "10px 12px 0" }}><h2>Clips <span className="dim" style={{ letterSpacing: 0 }}>{project.clips.length}</span></h2>
-                {selectedClip && <button className="btn small" onClick={() => seek(selectedClip.in_frame)}>Go to in</button>}</div>
+                {selectedClip && <button className="btn small" onClick={() => jumpTo(selectedClip.in_frame)}>Go to in</button>}</div>
             </div>
-            <ClipList clips={project.clips} info={info!} selected={selected} onSelect={setSelected} onPatch={patchClip} onDelete={deleteClip} onSeek={seek} renderRows={renderRows} />
+            <ClipList clips={project.clips} info={info!} selected={selected} onSelect={setSelected} onPatch={patchClip} onDelete={deleteClip} onSeek={jumpTo} renderRows={renderRows} />
             <div>
-              {selectedClip && <ClipEditor clip={selectedClip} info={info!} frame={frame} vocab={state.vocab} onPatch={(p) => patchClip(selectedClip.id, p)} onSeek={seek} />}
+              {selectedClip && <ClipEditor clip={selectedClip} info={info!} frame={frame} vocab={state.vocab} onPatch={(p) => patchClip(selectedClip.id, p)} onSeek={jumpTo} onSay={say} />}
               <RenderPanel job={renderJob} clipCount={project.clips.length} missingStills={project.clips.filter((c) => c.still_frame === null).length} selectedId={selected} outDir={ws!.clips_dir}
                 onRender={() => startRender()}
                 onRenderSelected={() => selected && startRender([selected])}
@@ -330,7 +337,7 @@ export default function App() {
           <div className="modal" style={{ width: 520, gridTemplateRows: "auto 1fr" }} onClick={(e) => e.stopPropagation()}>
             <header><h2>Keyboard</h2></header>
             <div className="help">
-              {([["Space", "play / pause"], ["J / K / L", "shuttle back / pause / shuttle forward (press again for faster)"], ["Shift+J / Shift+L", "slow shuttle: quarter speed, then half"], ["← →", "one frame; hold to accelerate; Shift = one second; Ctrl = ten seconds"], ["two-finger swipe", "jog over the picture; slow for single frames, flick for seconds (Shift+wheel with a mouse)"], ["I / O", "set in / out at the playhead"], ["Enter", "add the in–out range as a clip"], ["Esc", "clear in / out and selection"], ["[ ]", "previous / next marker"], ["M", "drop a marker at the playhead"], ["S", "still: sets the clip's still, adds an extra one if it has one, or marks the frame for the next clip"], ["Shift+S", "save this frame as a named still"], ["F", "show the exact source frame while paused (works before the proxy exists)"], ["Ctrl+wheel", "zoom the thumbnails"], ["Delete", "remove the selected clip"]] as const).map(([k, v]) => <><span className="kbd">{k}</span><span>{v}</span></>)}
+              {([["Space", "play / pause"], ["shuttle", "drag the knob in the transport: further is faster, let go to stop"], ["J / K / L", "shuttle back / pause / shuttle forward (press again for faster)"], ["Shift+J / Shift+L", "slow shuttle: quarter speed, then half"], ["← →", "one frame (hold to repeat); Shift = one second; Ctrl / Cmd = ten seconds"], ["two-finger swipe", "jog over the picture: swipe right to go forward; slow for single frames, flick for seconds (Shift+wheel with a mouse)"], ["Cmd/Ctrl+Z", "undo the last edit (Shift for redo): in/out, stills, clips, markers, settings"], ["I / O", "set in / out at the playhead"], ["Enter", "add the in–out range as a clip"], ["Esc", "clear in / out and selection"], ["[ ]", "previous / next marker"], ["M", "drop a marker at the playhead"], ["S", "still: sets the clip's still, adds an extra one if it has one, or marks the frame for the next clip"], ["Shift+S", "save this frame as a named still"], ["F", "show the exact source frame while paused (works before the proxy exists)"], ["Ctrl+wheel", "zoom the thumbnails"], ["Delete", "remove the selected clip"]] as const).map(([k, v]) => <><span className="kbd">{k}</span><span>{v}</span></>)}
             </div>
           </div>
         </div>

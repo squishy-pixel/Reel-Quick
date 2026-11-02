@@ -1,4 +1,5 @@
 import time
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -57,6 +58,52 @@ def test_game_clips_and_naming(client):
     assert client.patch(f"/api/clips/{cid}", json={"out_frame": 50}).status_code == 400
     assert client.delete(f"/api/clips/{cid}").status_code == 200
     assert len(client.get("/api/state").json()["project"]["clips"]) == 1
+
+
+def test_undo_redo_walks_project_edits(client):
+    assert client.get("/api/state").json()["history"] == {"undo": None, "redo": None}
+    assert client.post("/api/undo").status_code == 409
+    cid = client.post("/api/clips", json={"in_frame": 100, "out_frame": 160, "desc": "one"}).json()["clip"]["id"]
+    client.patch(f"/api/clips/{cid}", json={"in_frame": 90})
+    client.post("/api/markers", json={"frame": 30, "description": "by hand"})
+    s = client.get("/api/state").json()
+    assert s["history"]["undo"] == "add marker" and s["project"]["clips"][0]["in_frame"] == 90
+    r = client.post("/api/undo").json()
+    assert r["label"] == "add marker" and r["project"]["markers"] == []
+    r = client.post("/api/undo").json()
+    assert r["label"] == "clip in point" and r["project"]["clips"][0]["in_frame"] == 100
+    assert r["history"] == {"undo": "add clip", "redo": "clip in point"}
+    r = client.post("/api/redo").json()
+    assert r["project"]["clips"][0]["in_frame"] == 90
+    r = client.post("/api/undo").json(); r = client.post("/api/undo").json()
+    assert r["label"] == "add clip" and r["project"]["clips"] == [] and r["history"]["undo"] is None
+    # a fresh edit forgets the redo branch, and the project file on disk follows every step
+    client.post("/api/clips", json={"in_frame": 5, "out_frame": 50})
+    assert client.get("/api/state").json()["history"]["redo"] is None
+    assert client.post("/api/redo").status_code == 409
+    # an out point before the in point is refused before anything is remembered
+    cid = client.get("/api/state").json()["project"]["clips"][0]["id"]
+    assert client.patch(f"/api/clips/{cid}", json={"in_frame": 70}).status_code == 400
+    assert client.get("/api/state").json()["history"]["undo"] == "add clip"
+
+
+def test_finished_proxy_outranks_one_still_building(client):
+    root = Path(client.get("/api/state").json()["workspace"]["root"])
+    (root / "proxy").mkdir()
+    playlist = root / "proxy" / "index.m3u8"
+    (root / "proxy" / "seg0.m4s").write_bytes(b"x")
+    playlist.write_text("#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-TARGETDURATION:4\n#EXTINF:4.0,\nseg0.m4s\n")
+    ws = client.get("/api/state").json()["workspace"]
+    assert ws["proxy_url"] == "/media/proxy/index.m3u8" and ws["proxy_building"] and not ws["proxy_complete"]
+    assert ws["proxy_available_seconds"] == 4.0
+    # an older finished MP4 beside it keeps playing until the playlist is whole
+    (root / "proxy.mp4").write_bytes(b"old proxy")
+    ws = client.get("/api/state").json()["workspace"]
+    assert ws["proxy_url"] == "/media/proxy.mp4" and ws["proxy_complete"] and ws["proxy_building"]
+    assert ws["proxy_available_seconds"] == pytest.approx(client.get("/api/state").json()["project"]["info"]["duration"])
+    playlist.write_text(playlist.read_text() + "#EXT-X-ENDLIST\n")
+    ws = client.get("/api/state").json()["workspace"]
+    assert ws["proxy_url"] == "/media/proxy/index.m3u8" and ws["proxy_complete"] and not ws["proxy_building"]
 
 
 def test_markers_import_uses_project_offset(client):

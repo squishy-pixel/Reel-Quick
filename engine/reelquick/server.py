@@ -158,6 +158,24 @@ def _list_dir(path: str | None) -> dict:
     return {"path": str(p), "parent": parent, "entries": entries}
 
 
+def _patch_label(patch: dict) -> str:
+    """What an undo of this clip edit will say it put back."""
+    names = {"in_frame": "in point", "out_frame": "out point", "still_frame": "still", "extra_stills": "extra stills",
+             "formats": "formats", "name": "file name", "shell": "shell", "desc": "description", "camera": "camera",
+             "engine": "engine", "head_seconds": "head", "tail_seconds": "tail", "notes": "notes"}
+    keys = [names.get(k, k) for k in patch]
+    return "clip " + (", ".join(keys) if keys else "edit")
+
+
+def _nearest_strip(w, frame: int):
+    idx = w.filmstrip_index()
+    if idx is None or not idx.frames:
+        return None
+    best = min(idx.frames, key=lambda t: abs(t["frame"] - frame))
+    p = w.strip_dir / best["file"]
+    return p if p.is_file() else None
+
+
 def create_app(session: Session | None = None) -> FastAPI:
     session = session or Session()
     jobs = JobManager()
@@ -182,6 +200,7 @@ def create_app(session: Session | None = None) -> FastAPI:
             "jobs": [j.to_dict() for j in jobs.list()],
             "work_root": str(session.work_root),
             "vocab": load_vocab(session.work_root),
+            "history": session.history() if w else {"undo": None, "redo": None},
             "engine": {
                 "ffmpeg": caps.version.split()[0],
                 "nvenc": encoder_works("h264_nvenc") if caps.nvenc else False,
@@ -265,6 +284,7 @@ def create_app(session: Session | None = None) -> FastAPI:
     def put_game(body: GameBody):
         w = ws()
         with session.lock:
+            session.remember("game details")
             w.project.game = GameInfo(body.date, body.week, body.away, body.home)
             w.project.renumber()
             w.save()
@@ -274,6 +294,7 @@ def create_app(session: Session | None = None) -> FastAPI:
     def put_settings(body: dict):
         w = ws()
         with session.lock:
+            session.remember("settings")
             s = w.project.settings
             for k, v in body.items():
                 if k in Settings.__dataclass_fields__:
@@ -292,10 +313,10 @@ def create_app(session: Session | None = None) -> FastAPI:
                 m = w.project.nearest_marker(body.in_frame, body.out_frame)
                 if m is not None:
                     shell, desc, camera, engine = m.shell, m.description, m.camera, m.engine
-            try:
-                clip = w.project.add_clip(body.in_frame, body.out_frame, shell, desc, body.formats, body.name, camera, engine)
-            except ValueError as e:
-                raise HTTPException(400, str(e))
+            if body.out_frame <= body.in_frame:
+                raise HTTPException(400, "out must be after in")
+            session.remember("add clip")
+            clip = w.project.add_clip(body.in_frame, body.out_frame, shell, desc, body.formats, body.name, camera, engine)
             w.project.renumber()
             w.save()
         return {"clip": clip.to_dict(), "project": w.project.to_dict()}
@@ -308,10 +329,14 @@ def create_app(session: Session | None = None) -> FastAPI:
             if clip is None:
                 raise HTTPException(404, "no such clip")
             custom_name = body.name is not None and body.name != clip.name
-            for k, v in body.model_dump(exclude_none=True).items():
+            patch = body.model_dump(exclude_none=True)
+            new_in = patch.get("in_frame", clip.in_frame)
+            new_out = patch.get("out_frame", clip.out_frame)
+            if new_out <= new_in:
+                raise HTTPException(400, f"out must be after in ({w.project.tc(new_in)} to {w.project.tc(new_out)})")
+            session.remember(_patch_label(patch))
+            for k, v in patch.items():
                 setattr(clip, k, v)
-            if clip.out_frame <= clip.in_frame:
-                raise HTTPException(400, "out must be after in")
             lo, hi = clip.padded_range(float(w.project.info.rate.fps))
             lo, hi = max(0, lo), min(w.project.info.nb_frames, hi)
             if clip.still_frame is not None:
@@ -331,10 +356,10 @@ def create_app(session: Session | None = None) -> FastAPI:
     def delete_clip(clip_id: str):
         w = ws()
         with session.lock:
-            before = len(w.project.clips)
-            w.project.clips = [c for c in w.project.clips if c.id != clip_id]
-            if len(w.project.clips) == before:
+            if not any(c.id == clip_id for c in w.project.clips):
                 raise HTTPException(404, "no such clip")
+            session.remember("delete clip")
+            w.project.clips = [c for c in w.project.clips if c.id != clip_id]
             w.project.renumber()
             w.save()
         return {"project": w.project.to_dict()}
@@ -343,6 +368,7 @@ def create_app(session: Session | None = None) -> FastAPI:
     def renumber():
         w = ws()
         with session.lock:
+            session.remember("renumber clips")
             w.project.renumber()
             w.save()
         return {"project": w.project.to_dict()}
@@ -354,6 +380,7 @@ def create_app(session: Session | None = None) -> FastAPI:
         """A hand-named still: recorded in the project and rendered right away."""
         w = ws()
         with session.lock:
+            session.remember("save still")
             try:
                 still = w.project.add_still(body.frame, body.name)
                 path = w.project.render_still(still, w.clips_dir, overwrite=True)
@@ -366,6 +393,7 @@ def create_app(session: Session | None = None) -> FastAPI:
     def delete_still(still_id: str):
         w = ws()
         with session.lock:
+            session.remember("delete still")
             w.project.stills = [s for s in w.project.stills if s.id != still_id]
             w.save()
         return {"project": w.project.to_dict()}
@@ -415,6 +443,7 @@ def create_app(session: Session | None = None) -> FastAPI:
         offset = body.offset_seconds if body.offset_seconds is not None else w.project.settings.log_offset_seconds
         res = import_log_csv(body.csv, w.project.info, offset)
         with session.lock:
+            session.remember("import log")
             if body.replace:
                 w.project.markers = [m for m in w.project.markers if m.source != "log"] + res.markers + res.untimed
             else:
@@ -428,6 +457,7 @@ def create_app(session: Session | None = None) -> FastAPI:
     def add_marker(body: MarkerBody):
         w = ws()
         with session.lock:
+            session.remember("add marker")
             m = Marker(frame=body.frame, tc=w.project.tc(body.frame), kind=body.kind, shell=body.shell,
                        description=body.description, camera=body.camera, engine=body.engine, source="user")
             w.project.markers.append(m)
@@ -439,6 +469,7 @@ def create_app(session: Session | None = None) -> FastAPI:
     def delete_marker(frame: int):
         w = ws()
         with session.lock:
+            session.remember("delete marker")
             w.project.markers = [m for m in w.project.markers if m.frame != frame]
             w.save()
         return {"project": w.project.to_dict()}
@@ -450,9 +481,26 @@ def create_app(session: Session | None = None) -> FastAPI:
             untimed = [m for m in w.project.markers if m.frame is None]
             if not 0 <= index < len(untimed):
                 raise HTTPException(404)
+            session.remember("delete marker")
             w.project.markers.remove(untimed[index])
             w.save()
         return {"project": w.project.to_dict()}
+
+    @app.post("/api/undo")
+    def undo():
+        ws()
+        label = session.undo()
+        if label is None:
+            raise HTTPException(409, "nothing to undo")
+        return {"label": label, **state()}
+
+    @app.post("/api/redo")
+    def redo():
+        ws()
+        label = session.redo()
+        if label is None:
+            raise HTTPException(409, "nothing to redo")
+        return {"label": label, **state()}
 
     # ---- media -----------------------------------------------------------
 
@@ -506,10 +554,13 @@ def create_app(session: Session | None = None) -> FastAPI:
             try:
                 read_info, _origin = w.media_for_reading()     # falls back to the proxy when the source is away
                 thumbnail_at(read_info, frame, p, width)
-            except FileNotFoundError as e:
-                raise HTTPException(409, str(e))
-            except FfmpegError as e:
-                raise HTTPException(500, str(e))
+            except (FileNotFoundError, FfmpegError) as e:
+                # Nothing can decode that frame right now (original away, proxy not there yet): the nearest
+                # filmstrip thumbnail still shows roughly what is there, and is not cached as the exact frame.
+                near = _nearest_strip(w, frame)
+                if near is None:
+                    raise HTTPException(409 if isinstance(e, FileNotFoundError) else 500, str(e))
+                return FileResponse(near, headers={"Cache-Control": "no-store", "X-Reelquick-Approx": "filmstrip"})
         return FileResponse(p, headers={"Cache-Control": "max-age=86400"})
 
     @app.get("/clips/{name:path}")

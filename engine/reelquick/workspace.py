@@ -62,12 +62,23 @@ class Workspace:
     def has_hls(self) -> bool:
         return self.proxy_playlist.exists() and hls_available_seconds(self.proxy_playlist) > 0
 
+    def has_mp4(self) -> bool:
+        """A finished reference MP4 (builds write to temporary names, so an existing one is whole)."""
+        return self.proxy_path.exists() and self.proxy_path.stat().st_size > 0
+
+    def proxy_choice(self) -> str | None:
+        """Which proxy the player gets: a finished playlist first, then a finished MP4, and only then a
+        playlist still being written. So a rebuild leaves the old proxy in use until the new one is whole."""
+        hls = self.has_hls()
+        if hls and hls_complete(self.proxy_playlist):
+            return "hls"
+        if self.has_mp4():
+            return "mp4"
+        return "hls" if hls else None
+
     def proxy_url(self) -> str | None:
-        if self.has_hls():
-            return "/media/proxy/index.m3u8"
-        if self.proxy_path.exists() and self.proxy_path.stat().st_size > 0:
-            return "/media/proxy.mp4"
-        return None
+        choice = self.proxy_choice()
+        return "/media/proxy/index.m3u8" if choice == "hls" else "/media/proxy.mp4" if choice == "mp4" else None
 
     _offset_cache: tuple[str, float, float] | None = None
 
@@ -127,6 +138,7 @@ class Workspace:
         raise FileNotFoundError("neither the original recording nor a proxy is available")
 
     def status(self) -> dict:
+        choice = self.proxy_choice()
         return {
             "source": str(self.source),
             "source_online": self.recheck_source(),
@@ -136,10 +148,11 @@ class Workspace:
             "has_proxy": self.has_proxy(),
             "proxy_url": self.proxy_url(),
             "proxy_start_offset": self.proxy_start_offset(),
-            "proxy_complete": (self.proxy_path.exists() and self.proxy_path.stat().st_size > 0)
-                              or (self.proxy_playlist.exists() and hls_complete(self.proxy_playlist)),
-            "proxy_available_seconds": hls_available_seconds(self.proxy_playlist) if self.proxy_playlist.exists() else
-                                       (self.project.info.duration if self.proxy_path.exists() else 0.0),
+            # these describe the proxy the player is given, so the UI's "playable so far" matches what plays
+            "proxy_complete": choice == "mp4" or (choice == "hls" and hls_complete(self.proxy_playlist)),
+            "proxy_available_seconds": self.project.info.duration if choice == "mp4" else
+                                       hls_available_seconds(self.proxy_playlist) if choice == "hls" else 0.0,
+            "proxy_building": self.proxy_playlist.exists() and not hls_complete(self.proxy_playlist),
             "clips_dir": str(self.clips_dir),
         }
 
@@ -210,10 +223,15 @@ def recent_projects(work_root: Path) -> list[dict]:
 class Session:
     """The one open workspace the app edits, guarded for the API's threads."""
 
+    HISTORY_LIMIT = 200
+
     def __init__(self, work_root: Path | None = None):
         self.work_root = work_root or default_work_root()
         self.workspace: Workspace | None = None
         self.lock = threading.RLock()
+        # Undo keeps whole project snapshots: they are a few hundred KB at most and every edit is small.
+        self.undo_stack: list[tuple[str, dict]] = []
+        self.redo_stack: list[tuple[str, dict]] = []
 
     def require(self) -> Workspace:
         if self.workspace is None:
@@ -223,4 +241,42 @@ class Session:
     def open(self, source: str | Path) -> Workspace:
         with self.lock:
             self.workspace = Workspace.open(source, self.work_root)
+            self.undo_stack.clear()
+            self.redo_stack.clear()
             return self.workspace
+
+    # ---- undo ----------------------------------------------------------------
+
+    def remember(self, label: str) -> None:
+        """Call before changing the project: the state as it is now becomes the undo point for `label`."""
+        w = self.require()
+        self.undo_stack.append((label, w.project.to_dict()))
+        del self.undo_stack[:-self.HISTORY_LIMIT]
+        self.redo_stack.clear()
+
+    def history(self) -> dict:
+        return {"undo": self.undo_stack[-1][0] if self.undo_stack else None,
+                "redo": self.redo_stack[-1][0] if self.redo_stack else None}
+
+    def undo(self) -> str | None:
+        return self._swap(self.undo_stack, self.redo_stack)
+
+    def redo(self) -> str | None:
+        return self._swap(self.redo_stack, self.undo_stack)
+
+    def _swap(self, take: list, give: list) -> str | None:
+        with self.lock:
+            w = self.require()
+            if not take:
+                return None
+            label, snapshot = take.pop()
+            give.append((label, w.project.to_dict()))
+            old = {c.id: c for c in w.project.clips}
+            w.project = Project.from_dict(snapshot)
+            # Rendering is not an edit: a clip's record of what has been rendered survives the undo.
+            for c in w.project.clips:
+                prev = old.get(c.id)
+                if prev is not None and prev.rendered and not c.rendered:
+                    c.rendered = dict(prev.rendered)
+            w.save()
+            return label

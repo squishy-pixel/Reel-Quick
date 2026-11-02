@@ -240,7 +240,10 @@ class Project:
 
     @classmethod
     def load(cls, path: str | Path) -> "Project":
-        d = json.loads(Path(path).read_text(encoding="utf-8"))
+        return cls.from_dict(json.loads(Path(path).read_text(encoding="utf-8")))
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Project":
         settings = Settings(**{k: v for k, v in d.get("settings", {}).items() if k in Settings.__dataclass_fields__})
         if settings.name_pattern in OLD_PATTERNS:
             settings.name_pattern = DEFAULT_PATTERN

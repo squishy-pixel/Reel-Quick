@@ -66,12 +66,21 @@ export function ClipList({ clips, info, selected, onSelect, onPatch, onDelete, o
   );
 }
 
-export function ClipEditor({ clip, info, frame, vocab, onPatch, onSeek }: {
+export function ClipEditor({ clip, info, frame, vocab, onPatch, onSeek, onSay }: {
   clip: Clip; info: MediaInfo; frame: number; vocab: Vocab; onPatch: (patch: Partial<Clip>) => void; onSeek: (f: number) => void;
+  onSay: (text: string, error?: boolean) => void;
 }) {
   const rate = { num: info.rate_num, den: info.rate_den };
   const base = startFrames(info);
   const tc = (f: number) => framesToTc(base + f, rate, info.drop_frame);
+  const setIn = () => {
+    if (frame >= clip.out_frame) { onSay(`The playhead (${tc(frame)}) is after this clip's out point (${tc(clip.out_frame)}); move it earlier or set the out first.`, true); return; }
+    onPatch({ in_frame: frame }); onSay(`In moved to ${tc(frame)} (Cmd/Ctrl+Z puts it back)`);
+  };
+  const setOut = () => {
+    if (frame <= clip.in_frame) { onSay(`The playhead (${tc(frame)}) is before this clip's in point (${tc(clip.in_frame)}); move it later or set the in first.`, true); return; }
+    onPatch({ out_frame: frame }); onSay(`Out moved to ${tc(frame)} (Cmd/Ctrl+Z puts it back)`);
+  };
   return (
     <div className="clipedit">
       <div className="row3">
@@ -90,9 +99,9 @@ export function ClipEditor({ clip, info, frame, vocab, onPatch, onSeek }: {
       <div className="field"><label>File name</label><input className="text num" defaultValue={clip.name} key={`n${clip.id}-${clip.name}`} onBlur={(e) => e.target.value !== clip.name && onPatch({ name: e.target.value })} /></div>
       <div className="row">
         <div className="field"><label>In</label>
-          <div style={{ display: "flex", gap: 4 }}><button className="btn small tc" onClick={() => onSeek(clip.in_frame)}>{tc(clip.in_frame)}</button><button className="btn small" title="Set in to playhead" onClick={() => onPatch({ in_frame: frame })}>←●</button></div></div>
+          <div style={{ display: "flex", gap: 4 }}><button className="btn small tc" onClick={() => onSeek(clip.in_frame)}>{tc(clip.in_frame)}</button><button className="btn small" title={`Set in to the playhead (${tc(frame)})`} onClick={setIn}>←●</button></div></div>
         <div className="field"><label>Out</label>
-          <div style={{ display: "flex", gap: 4 }}><button className="btn small tc" onClick={() => onSeek(clip.out_frame)}>{tc(clip.out_frame)}</button><button className="btn small" title="Set out to playhead" onClick={() => onPatch({ out_frame: frame })}>●→</button></div></div>
+          <div style={{ display: "flex", gap: 4 }}><button className="btn small tc" onClick={() => onSeek(clip.out_frame)}>{tc(clip.out_frame)}</button><button className="btn small" title={`Set out to the playhead (${tc(frame)})`} onClick={setOut}>●→</button></div></div>
       </div>
       <div className="field"><label>Stills <span className="dim" style={{ textTransform: "none", letterSpacing: 0 }}>· the first names the file, extras become _02, _03</span></label>
         <div className="stillchips">
