@@ -165,7 +165,10 @@ def _list_dir(path: str | None) -> dict:
         if os.name == "nt":
             drives = [f"{d}:\\" for d in string.ascii_uppercase if Path(f"{d}:\\").exists()]
             return {"path": "", "parent": None, "entries": [{"name": d, "path": d, "dir": True} for d in drives]}
-        path = str(Path.home())
+        roots = [{"name": "Home", "path": str(Path.home()), "dir": True}]
+        if Path("/Volumes").is_dir():
+            roots += [{"name": v.name, "path": str(v), "dir": True} for v in sorted(Path("/Volumes").iterdir()) if v.is_dir()]
+        return {"path": "", "parent": None, "entries": roots}
     p = Path(path)
     if not p.is_dir():
         raise HTTPException(404, f"not a folder: {path}")
@@ -184,7 +187,7 @@ def _list_dir(path: str | None) -> dict:
             entries.append({"name": child.name, "path": str(child), "dir": is_dir, "size": size})
     except PermissionError:
         raise HTTPException(403, f"no access to {path}")
-    parent = str(p.parent) if p.parent != p else ("" if os.name == "nt" else None)
+    parent = str(p.parent) if p.parent not in (p, Path("/Volumes"), Path.home().parent) else ""
     return {"path": str(p), "parent": parent, "entries": entries}
 
 

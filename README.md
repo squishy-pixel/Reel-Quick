@@ -113,6 +113,21 @@ Time is time of day on the truck clock, in Eastern. The recorder timecode is
 Pacific, so three hours are subtracted by default. `19:32:05`, `7:32:05 PM`, `19:32`,
 and `19:32:05;12` all parse.
 
+## Running on a Mac
+
+```bash
+brew install ffmpeg uv
+git clone -b claude/tnf-clip-extraction-tool-d6mcix https://github.com/squishy-pixel/Reel-Quick ~/Dev/Reel-Quick
+cd ~/Dev/Reel-Quick/engine
+uv sync --extra dev --extra app
+cp /path/to/NBCU_HLG2SDR_DL_v1.2.cube luts/
+uv run reelquick app --work "/Volumes/<drive>/Work" --open "/Volumes/<drive>/path/to/game.mxf"
+```
+
+Homebrew's ffmpeg carries zimg, ProRes and the VideoToolbox encoders. On
+Apple Silicon the proxy encodes on the media engine (h264_videotoolbox) and
+ProRes on prores_videotoolbox; the software encoders are the fallback.
+
 ## Running the engine (Windows, Mac, Linux)
 
 Needs an ffmpeg build with `prores_ks`, `zscale` and `tonemap` (the gyan.dev

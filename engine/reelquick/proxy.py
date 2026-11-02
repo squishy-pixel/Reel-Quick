@@ -45,11 +45,16 @@ def pick_encoder(settings: ProxySettings) -> tuple[str, list[str]]:
         if settings.prefer_gpu and encoder_works("hevc_nvenc"):
             return "hevc_nvenc", ["-preset", "p4", "-rc", "vbr", "-cq", "26", "-b:v", settings.bitrate,
                                   "-maxrate", settings.bitrate, "-bf", "2", "-tag:v", "hvc1"]
+        if settings.prefer_gpu and encoder_works("hevc_videotoolbox"):
+            return "hevc_videotoolbox", ["-b:v", settings.bitrate, "-maxrate", settings.bitrate, "-tag:v", "hvc1", "-allow_sw", "1"]
         if caps.has_encoder("libx265"):
             return "libx265", ["-preset", "fast", "-crf", "24", "-tag:v", "hvc1"]
     if settings.prefer_gpu and encoder_works("h264_nvenc"):
         return "h264_nvenc", ["-preset", "p4", "-rc", "vbr", "-cq", "23", "-b:v", settings.bitrate,
                               "-maxrate", settings.bitrate, "-bf", "2"]
+    if settings.prefer_gpu and encoder_works("h264_videotoolbox"):
+        # Apple Silicon media engine: fast, and the quality knob is a bitrate.
+        return "h264_videotoolbox", ["-b:v", settings.bitrate, "-maxrate", settings.bitrate, "-allow_sw", "1"]
     if caps.has_encoder("libx264"):
         return "libx264", ["-preset", "veryfast", "-crf", "21", "-maxrate", settings.bitrate,
                            "-bufsize", settings.bitrate]
@@ -65,7 +70,7 @@ def _video_chain(info: MediaInfo, settings: ProxySettings, encoder: str) -> tupl
         parts.append(sdr_filter(info, caps))
         tags = SDR_TAG_ARGS
     else:
-        pix = "p010le" if encoder.endswith("nvenc") else "yuv420p10le"
+        pix = "p010le" if encoder.endswith(("nvenc", "videotoolbox")) else "yuv420p10le"
         parts.append(f"format={pix}")
         tags = HLG_TAG_ARGS if info.is_hlg else []
     return ",".join(parts), tags

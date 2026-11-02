@@ -56,8 +56,8 @@ def output_extension(spec: ClipSpec) -> str:
     return ".mov"
 
 
-def build_render_args(info: MediaInfo, spec: ClipSpec, out_path: Path) -> tuple[list[str], float]:
-    """Return ffmpeg args and the clip duration in seconds."""
+def build_render_args(info: MediaInfo, spec: ClipSpec, out_path: Path, allow_hw: bool = True) -> tuple[list[str], float]:
+    """Return ffmpeg args and the clip duration in seconds. allow_hw=False forces the software encoders."""
     rate = info.rate
     start, end = spec.padded(info.nb_frames)
     n = end - start
@@ -93,7 +93,8 @@ def build_render_args(info: MediaInfo, spec: ClipSpec, out_path: Path) -> tuple[
             graph = f"[{vmap}]{vf}[v]" + (";" + a_graph if a_graph else "")
             args += ["-filter_complex", graph, "-map", "[v]", *a_map]
             profile = PRORES_PROFILES[spec.prores_profile]
-            args += ["-c:v", "prores_ks", "-profile:v", str(profile), "-vendor", "apl0"]
+            encoder, enc_args = _prores_encoder(profile, allow_hw)
+            args += ["-c:v", encoder, *enc_args]
             args += source_tag_args(info)
             if tracks:
                 args += ["-c:a", "pcm_s24le", *a_titles, *a_default]
@@ -104,7 +105,7 @@ def build_render_args(info: MediaInfo, spec: ClipSpec, out_path: Path) -> tuple[
             if spec.mp4_sdr:
                 parts.append(sdr_filter(info, caps))
                 tags = SDR_TAG_ARGS
-                encoder, enc_args = _h264_encoder()
+                encoder, enc_args = _h264_encoder(allow_hw)
             else:
                 parts.append("format=yuv420p10le")
                 tags = source_tag_args(info)
@@ -125,10 +126,19 @@ def build_render_args(info: MediaInfo, spec: ClipSpec, out_path: Path) -> tuple[
     return args, float(duration)
 
 
-def _h264_encoder() -> tuple[str, list[str]]:
-    if encoder_works("h264_nvenc"):
+def _h264_encoder(allow_hw: bool = True) -> tuple[str, list[str]]:
+    if allow_hw and encoder_works("h264_nvenc"):
         return "h264_nvenc", ["-preset", "p5", "-rc", "vbr", "-cq", "21", "-b:v", "0", "-bf", "2"]
+    if allow_hw and encoder_works("h264_videotoolbox"):
+        return "h264_videotoolbox", ["-b:v", "12M", "-maxrate", "16M", "-allow_sw", "1"]
     return "libx264", ["-preset", "medium", "-crf", "19"]
+
+
+def _prores_encoder(profile: int, allow_hw: bool = True) -> tuple[str, list[str]]:
+    """prores_videotoolbox on Apple Silicon is many times faster than prores_ks; same profiles."""
+    if allow_hw and encoder_works("prores_videotoolbox"):
+        return "prores_videotoolbox", ["-profile:v", str(profile), "-allow_sw", "1"]
+    return "prores_ks", ["-profile:v", str(profile), "-vendor", "apl0"]
 
 
 def _hevc10_encoder() -> tuple[str, list[str]]:
@@ -153,13 +163,24 @@ def render_clip(
     out_path = out_dir / (spec.name + output_extension(spec))
     if out_path.exists() and not overwrite:
         raise FileExistsError(str(out_path))
-    args, duration = build_render_args(info, spec, out_path)
     tmp = out_path.with_name(out_path.stem + ".partial" + out_path.suffix)
-    args[-1] = str(tmp)
-    try:
-        run_ffmpeg(args, duration=duration, on_progress=on_progress, cancel=cancel)
-    except Exception:
-        tmp.unlink(missing_ok=True)
-        raise
+    # A hardware encoder that refuses this picture (pixel format, size) is retried with the software one.
+    for allow_hw in (True, False):
+        args, duration = build_render_args(info, spec, out_path, allow_hw)
+        args[-1] = str(tmp)
+        try:
+            run_ffmpeg(args, duration=duration, on_progress=on_progress, cancel=cancel)
+            break
+        except FfmpegError:
+            tmp.unlink(missing_ok=True)
+            if not allow_hw or (cancel is not None and cancel.is_set()) or not _used_hw(args):
+                raise
+        except Exception:
+            tmp.unlink(missing_ok=True)
+            raise
     tmp.replace(out_path)
     return out_path
+
+
+def _used_hw(args: list[str]) -> bool:
+    return any(a.endswith(("_nvenc", "_videotoolbox")) for a in args)
