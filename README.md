@@ -160,7 +160,10 @@ uv run reelquick still D:\Records\game.mxf D:\Work\game\clips\stills --at 19:32:
 `uv sync` downloads a private Python and the dependencies into `engine\.venv`
 on first run. `uv run` uses that environment without activating anything.
 If ffmpeg is not on PATH, put `ffmpeg.exe` and `ffprobe.exe` in `engine\bin\`
-or set `REELQUICK_FFMPEG_DIR` to the folder that holds them.
+or set `REELQUICK_FFMPEG_DIR` to the folder that holds them. On a Mac use
+`brew install ffmpeg-full`: the regular Homebrew `ffmpeg` has no `zscale`
+filter, and the engine looks in the keg-only `ffmpeg-full` folder on its own
+(see `docs/MAC-SETUP.md`).
 
 Output layout for one clip rendered as ProRes plus MP4:
 

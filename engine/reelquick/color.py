@@ -32,6 +32,29 @@ SDR_TAG_ARGS = [
     "-color_range", "tv",
 ]
 
+
+def tag_filter(primaries: str | None, trc: str | None, matrix: str | None, rng: str = "tv") -> str:
+    """A setparams stage that stamps color tags onto the frames themselves.
+
+    ffmpeg 9 takes an encoder's color tags from the frames it is handed and
+    ignores -color_primaries / -color_trc given as output options (-colorspace
+    and -color_range still apply). Older builds honour both, so the *_TAG_ARGS
+    above stay on the command line and this filter is appended to the video
+    chain. Unknown values are left out so nothing is invented.
+    """
+    fields = [("color_primaries", primaries), ("color_trc", trc), ("colorspace", matrix), ("range", rng)]
+    body = ":".join(f"{k}={v}" for k, v in fields if v)
+    return f"setparams={body}" if body else ""
+
+
+HLG_TAG_FILTER = tag_filter("bt2020", "arib-std-b67", "bt2020nc")
+SDR_TAG_FILTER = tag_filter("bt709", "bt709", "bt709")
+
+
+def source_tag_filter(info: "MediaInfo") -> str:
+    """setparams stage carrying whatever the source declared (see source_tag_args)."""
+    return tag_filter(info.color_primaries, info.color_transfer, info.color_space)
+
 LUT_EXTENSIONS = (".cube", ".3dl", ".dat", ".m3d", ".csp")
 
 

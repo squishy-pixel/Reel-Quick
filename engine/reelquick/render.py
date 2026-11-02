@@ -8,7 +8,7 @@ from enum import Enum
 from pathlib import Path
 
 from .audio import audio_streams
-from .color import SDR_TAG_ARGS, sdr_filter, source_tag_args
+from .color import SDR_TAG_ARGS, SDR_TAG_FILTER, sdr_filter, source_tag_args, source_tag_filter
 from .ffmpeg import FfmpegError, ProgressFn, capabilities, encoder_works, fmt_seconds, run_ffmpeg
 from .probe import MediaInfo
 from .timecode import frames_to_seconds, frames_to_tc
@@ -89,7 +89,7 @@ def build_render_args(info: MediaInfo, spec: ClipSpec, out_path: Path, allow_hw:
     else:
         args += ["-ss", fmt_seconds(start_sec), "-i", info.path]
         if spec.fmt == OutputFormat.PRORES:
-            vf = "format=yuv422p10le"
+            vf = ",".join(p for p in ("format=yuv422p10le", source_tag_filter(info)) if p)
             graph = f"[{vmap}]{vf}[v]" + (";" + a_graph if a_graph else "")
             args += ["-filter_complex", graph, "-map", "[v]", *a_map]
             profile = PRORES_PROFILES[spec.prores_profile]
@@ -103,14 +103,14 @@ def build_render_args(info: MediaInfo, spec: ClipSpec, out_path: Path, allow_hw:
             if spec.mp4_height and spec.mp4_height < info.height:
                 parts.append(f"scale=-2:{spec.mp4_height}")
             if spec.mp4_sdr:
-                parts.append(sdr_filter(info, caps))
+                parts += [sdr_filter(info, caps), SDR_TAG_FILTER]
                 tags = SDR_TAG_ARGS
                 encoder, enc_args = _h264_encoder(allow_hw)
             else:
-                parts.append("format=yuv420p10le")
+                parts += ["format=yuv420p10le", source_tag_filter(info)]
                 tags = source_tag_args(info)
                 encoder, enc_args = _hevc10_encoder()
-            graph = f"[{vmap}]{','.join(parts)}[v]" + (";" + a_graph if a_graph else "")
+            graph = f"[{vmap}]{','.join(p for p in parts if p)}[v]" + (";" + a_graph if a_graph else "")
             args += ["-filter_complex", graph, "-map", "[v]", *a_map]
             args += ["-c:v", encoder, *enc_args, *tags]
             if tracks:

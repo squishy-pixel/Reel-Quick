@@ -34,7 +34,9 @@ def synthetic_mxf(tmp_path_factory) -> Path:
         "-c:v", "libx264", "-preset", "ultrafast", "-crf", "30",
         "-pix_fmt", "yuv422p10le", "-profile:v", "high422", "-g", "1",
         "-x264-params", "keyint=1:min-keyint=1:scenecut=0:bframes=0:cabac=0",
-        "-color_primaries", "bt2020", "-color_trc", "arib-std-b67", "-colorspace", "bt2020nc", "-color_range", "tv",
+        # Tag the frames, not the encoder: ffmpeg 9 ignores -color_primaries/-color_trc
+        # as output options and takes the tags from the frames it encodes.
+        "-vf", "setparams=color_primaries=bt2020:color_trc=arib-std-b67:colorspace=bt2020nc:range=tv",
         "-timecode", START_TC,
         "-c:a", "pcm_s24le",
         str(out),
@@ -51,7 +53,7 @@ def info(synthetic_mxf):
 def decoded_frame_hashes(path: Path, first: int, count: int, stream: str = "v:0") -> list[str]:
     """MD5 of each decoded frame in [first, first+count), for frame-accuracy checks."""
     cmd = [ffmpeg_bin(), "-v", "error", "-i", str(path), "-map", f"0:{stream}",
-           "-vf", f"select='between(n,{first},{first + count - 1})'", "-vsync", "0",
+           "-vf", f"select='between(n,{first},{first + count - 1})'", "-fps_mode", "passthrough",
            "-f", "framemd5", "-"]
     out = subprocess.run(cmd, check=True, capture_output=True, text=True).stdout
     return [line.split(",")[-1].strip() for line in out.splitlines() if line and not line.startswith("#")]

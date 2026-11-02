@@ -31,22 +31,33 @@ verbatim at the end.
 
 ## Steps
 
-1. Tooling: `brew install ffmpeg uv` (skip what is installed). Confirm
-   `ffmpeg -version` and `uv --version`.
+1. Tooling: `brew install ffmpeg ffmpeg-full uv` (skip what is installed).
+   Homebrew's regular `ffmpeg` formula is built without zimg, so it has no
+   `zscale` filter and every HLG to SDR conversion in the engine fails.
+   `ffmpeg-full` is keg-only (it lives in `/opt/homebrew/opt/ffmpeg-full/bin`
+   and is not linked onto PATH); the engine looks there on its own on macOS,
+   and `REELQUICK_FFMPEG_DIR` overrides the choice. Confirm `uv --version`
+   and `/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg -hide_banner -filters | grep zscale`.
 2. In `engine/`: `uv sync --extra dev --extra app`. Copy the three NBCU
    `.cube` files into `engine/luts/` (git-ignored except its README).
-3. `uv run reelquick caps`; record the JSON. Also
-   `ffmpeg -hide_banner -encoders | grep -i videotoolbox`; record the list.
+3. `uv run reelquick caps`; record the JSON. `ffmpeg` should point into the
+   `ffmpeg-full` keg and `tonemap` should be true. Also
+   `/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg -hide_banner -encoders | grep -i videotoolbox`;
+   record the list.
 4. `uv run pytest -q` in `engine/`. All tests should pass on macOS. Capture
    any failure verbatim; do not change tests to make them pass. If a failure
    is clearly a macOS portability bug in the engine (a path assumption, a
    Windows-only call), fix it minimally, re-run, and note the change.
+   Known ffmpeg 9 behaviour: `-color_primaries` and `-color_trc` are ignored
+   as output options, so the engine and the test fixture stamp color tags
+   onto the frames with a `setparams` filter instead.
 5. `uv run reelquick lut-check`; record the table.
 6. Once the MXF copy has finished: `uv run reelquick probe "<mxf path>"`,
    then `uv run reelquick bench "<mxf path>" --only "CPU dec"`; record both.
    If the copy is still running, skip and say so.
-7. Launch the app in the background, pointed at the copied work root:
-   `nohup uv run reelquick app --work "/Volumes/TJN_TNF26/_AI-Resources/App-Reel-Quick/Work" --browser --port 8765 > /tmp/reelquick-app.log 2>&1 &`
+7. Launch the app in the background, pointed at the copied work root and
+   explicitly at the `ffmpeg-full` binaries:
+   `REELQUICK_FFMPEG_DIR=/opt/homebrew/opt/ffmpeg-full/bin nohup uv run reelquick app --work "/Volumes/TJN_TNF26/_AI-Resources/App-Reel-Quick/Work" --browser --port 8765 > /tmp/reelquick-app.log 2>&1 &`
    Wait ten seconds, then `cat /tmp/reelquick-app.log`. The default browser
    should open the app. Report any traceback verbatim.
 8. Record what `curl -s http://127.0.0.1:8765/api/recent` returns.

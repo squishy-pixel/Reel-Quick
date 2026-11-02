@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .audio import audio_graph, select_tracks
-from .color import HLG_TAG_ARGS, SDR_TAG_ARGS, sdr_filter
+from .color import HLG_TAG_ARGS, HLG_TAG_FILTER, SDR_TAG_ARGS, SDR_TAG_FILTER, sdr_filter
 from .ffmpeg import FfmpegError, ProgressFn, capabilities, encoder_works, fmt_seconds, run_ffmpeg
 from .probe import MediaInfo
 from .timecode import frames_to_seconds
@@ -67,13 +67,15 @@ def _video_chain(info: MediaInfo, settings: ProxySettings, encoder: str) -> tupl
     if settings.height and settings.height < info.height:
         parts.append(f"scale=-2:{settings.height}")
     if settings.sdr:
-        parts.append(sdr_filter(info, caps))
+        parts += [sdr_filter(info, caps), SDR_TAG_FILTER]
         tags = SDR_TAG_ARGS
     else:
         pix = "p010le" if encoder.endswith(("nvenc", "videotoolbox")) else "yuv420p10le"
         parts.append(f"format={pix}")
+        if info.is_hlg:
+            parts.append(HLG_TAG_FILTER)
         tags = HLG_TAG_ARGS if info.is_hlg else []
-    return ",".join(parts), tags
+    return ",".join(p for p in parts if p), tags
 
 
 def _encode_args(info: MediaInfo, settings: ProxySettings, start_frame: int, n_frames: int,

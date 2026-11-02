@@ -35,6 +35,12 @@ def _candidate_dirs() -> Iterable[Path]:
     yield base / "bin"
     yield base
     yield Path(__file__).resolve().parent.parent / "bin"
+    if sys.platform == "darwin":
+        # Homebrew's regular ffmpeg formula is built without zimg, so it has no
+        # zscale and every HLG to SDR conversion fails. The keg-only ffmpeg-full
+        # formula has it; prefer that keg over whatever ffmpeg is on PATH.
+        for prefix in ("/opt/homebrew", "/usr/local"):
+            yield Path(prefix) / "opt" / "ffmpeg-full" / "bin"
 
 
 def find_binary(name: str) -> str:
