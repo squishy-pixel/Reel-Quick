@@ -13,7 +13,8 @@ export interface PlayerHandle {
 export const Player = forwardRef<PlayerHandle, {
   info: MediaInfo; proxyUrl: string | null; frame: number; onFrame: (f: number) => void; exactView: boolean;
   onStatus?: (s: { rate: number; mode: string }) => void;
-}>(function Player({ info, proxyUrl, frame, onFrame, exactView, onStatus }, ref) {
+  onError?: (message: string) => void;
+}>(function Player({ info, proxyUrl, frame, onFrame, exactView, onStatus, onError }, ref) {
   const video = useRef<HTMLVideoElement>(null);
   const fps = info.fps;
   const [rate, setRate] = useState(0);
@@ -28,7 +29,10 @@ export const Player = forwardRef<PlayerHandle, {
       onFrame(clamped);
       if (v) { v.currentTime = (clamped + 0.3) / fps; }
     },
-    play(r = 1) { const v = video.current; if (!v) return; stopReverse(); v.playbackRate = r; setRate(r); v.play().catch(() => {}); },
+    play(r = 1) {
+      const v = video.current; if (!v) return; stopReverse(); v.playbackRate = r; setRate(r);
+      v.play().catch((e: any) => { setRate(0); onError?.(`Playback refused: ${e?.name ?? "error"} ${e?.message ?? ""}`.trim()); });
+    },
     pause() { const v = video.current; stopReverse(); setRate(0); v?.pause(); },
     toggle() { const v = video.current; if (!v) return; if (v.paused && !reverse.current) { this.play(1); } else { this.pause(); } },
     shuttle(dir) {
@@ -66,8 +70,16 @@ export const Player = forwardRef<PlayerHandle, {
     v.addEventListener("seeked", onTime);
     const onPlay = () => setPaused(false), onPause = () => setPaused(true);
     v.addEventListener("play", onPlay); v.addEventListener("pause", onPause);
-    return () => { v.removeEventListener("timeupdate", onTime); v.removeEventListener("seeked", onTime); v.removeEventListener("play", onPlay); v.removeEventListener("pause", onPause); if (handle && (v as any).cancelVideoFrameCallback) (v as any).cancelVideoFrameCallback(handle); };
-  }, [proxyUrl, fps, info.nb_frames, onFrame]);
+    const onErr = () => {
+      const codes: Record<number, string> = { 1: "aborted", 2: "network error", 3: "decode error", 4: "source not supported" };
+      const err = v.error;
+      onError?.(`Video ${err ? codes[err.code] ?? `error ${err.code}` : "error"}${err?.message ? `: ${err.message}` : ""} (${proxyUrl})`);
+    };
+    v.addEventListener("error", onErr);
+    const onStalled = () => onError?.("Video stalled waiting for data from the proxy");
+    v.addEventListener("stalled", onStalled);
+    return () => { v.removeEventListener("timeupdate", onTime); v.removeEventListener("seeked", onTime); v.removeEventListener("play", onPlay); v.removeEventListener("pause", onPause); v.removeEventListener("error", onErr); v.removeEventListener("stalled", onStalled); if (handle && (v as any).cancelVideoFrameCallback) (v as any).cancelVideoFrameCallback(handle); };
+  }, [proxyUrl, fps, info.nb_frames, onFrame, onError]);
 
   const showExact = exactView && paused && rate === 0;
   // The transport bar shows rate and mode; nothing is drawn over the picture.

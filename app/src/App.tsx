@@ -208,7 +208,7 @@ export default function App() {
       <div className="main">
         {project ? (
           <>
-            <Player ref={player} info={info!} proxyUrl={ws!.proxy_url} frame={frame} onFrame={onFrame} exactView={exactView} onStatus={setPstatus} />
+            <Player ref={player} info={info!} proxyUrl={ws!.proxy_url} frame={frame} onFrame={onFrame} exactView={exactView} onStatus={setPstatus} onError={(m) => say(m, true)} />
             <div className="transport">
               <div className="readout">
                 <Tc value={tcOf(frame)} className="big" />
