@@ -22,8 +22,9 @@ from .color import thumbnail_filter
 from .ffmpeg import FfmpegError, capabilities, fmt_seconds, run_ffmpeg
 from .probe import probe
 
+# The sequence is sometimes missing (RepurposedShell_AFCSeedRace00000000) or hyphenated (KelceCloseUp-01_...).
 CLIP_RE = re.compile(
-    r"^(?P<game>\d{4}WK\w+?-[A-Za-z]+vs[A-Za-z]+(?:-[A-Za-z]+)?)_(?P<shell>[A-Za-z0-9]+)_(?P<seq>\d{2})_?(?P<note>[A-Za-z][A-Za-z0-9 -]*?)?(?P<frame>\d{6,9})?$",
+    r"^(?P<game>\d{4}WK\w+?-[A-Za-z]+vs[A-Za-z]+(?:-[A-Za-z]+)?)_(?P<shell>[A-Za-z0-9]+)(?:[_-](?P<seq>\d{2}))?_?(?P<note>[A-Za-z][A-Za-z0-9 -]*?)?(?P<frame>\d{6,9})?$",
     re.I,
 )
 MEDIA_EXT = {".mov", ".mp4", ".mxf", ".mkv"}
@@ -68,7 +69,7 @@ def parse_name(path: Path) -> dict | None:
         "game": m.group("game"),
         "shell_raw": raw,
         "shell": SHELL_ALIASES.get(raw.lower(), re.sub(r"(?<!^)(?=[A-Z])", " ", raw)),
-        "seq": int(m.group("seq")),
+        "seq": int(m.group("seq") or 0),          # 0: the name carries no sequence number
         "note": (m.group("note") or "").strip(" -"),
         "source_frame": int(m.group("frame")) if m.group("frame") else None,
     }
