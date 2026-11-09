@@ -1588,8 +1588,8 @@
     973253,
     973431
    ],
-   "kind": "not_ours",
-   "note": "2nd Quarter title",
+   "kind": "maybe_ours",
+   "note": "2nd Quarter title (quarter titles can be ours: TJ, Nov 2026; never a reject reference)",
    "matched_as": [
     "Match-Up"
    ]
@@ -1600,8 +1600,8 @@
     974229,
     974407
    ],
-   "kind": "not_ours",
-   "note": "4th Quarter title",
+   "kind": "maybe_ours",
+   "note": "4th Quarter title (quarter titles can be ours: TJ, Nov 2026; never a reject reference)",
    "matched_as": [
     "Match-Up"
    ]
