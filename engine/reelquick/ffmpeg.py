@@ -89,11 +89,13 @@ def run_ffmpeg(
     duration: float | None = None,
     on_progress: ProgressFn | None = None,
     cancel: threading.Event | None = None,
+    cwd: str | Path | None = None,
 ) -> str:
     """Run ffmpeg with the given arguments (everything after the binary).
 
     duration is the expected output duration in seconds and is used to turn
-    ffmpeg's out_time into a 0..1 fraction for on_progress. Returns stderr.
+    ffmpeg's out_time into a 0..1 fraction for on_progress. cwd is the folder
+    ffmpeg runs in (relative paths in args resolve against it). Returns stderr.
     """
     cmd = [ffmpeg_bin(), "-hide_banner", "-nostdin", "-loglevel", "error", "-y"]
     if on_progress is not None:
@@ -106,6 +108,7 @@ def run_ffmpeg(
         text=True,
         encoding="utf-8",
         errors="replace",
+        cwd=cwd,
         **_popen_kwargs(),
     )
     stderr_chunks: list[str] = []

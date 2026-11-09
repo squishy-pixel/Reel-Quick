@@ -13,6 +13,7 @@ is encoded to AAC once, in the join step, which reads only the segments.
 
 from __future__ import annotations
 
+import os
 import tempfile
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -84,8 +85,11 @@ def _video_chain(info: MediaInfo, settings: ProxySettings, encoder: str) -> tupl
 
 
 def _hls_output_args(settings: ProxySettings, playlist: Path) -> list[str]:
-    """fMP4 HLS, event playlist (appended while encoding), every segment starting on a keyframe."""
-    seg_dir = playlist.parent
+    """fMP4 HLS, event playlist (appended while encoding), every segment starting on a keyframe.
+
+    Every name is relative: ffmpeg must run with cwd=playlist.parent. Builds disagree on where a
+    relative init file goes when the playlist path is absolute (ffmpeg 9 on Windows writes
+    init.mp4 somewhere other than the playlist folder), so the folder itself is the anchor."""
     return [
         "-f", "hls",
         "-hls_time", fmt_seconds(settings.hls_segment_seconds),
@@ -94,8 +98,8 @@ def _hls_output_args(settings: ProxySettings, playlist: Path) -> list[str]:
         "-hls_segment_type", "fmp4",
         "-hls_flags", "independent_segments+temp_file",
         "-hls_fmp4_init_filename", "init.mp4",
-        "-hls_segment_filename", str(seg_dir / "seg%05d.m4s"),
-        str(playlist),
+        "-hls_segment_filename", "seg%05d.m4s",
+        playlist.name,
     ]
 
 
@@ -118,7 +122,7 @@ def _encode_args(info: MediaInfo, settings: ProxySettings, start_frame: int, n_f
         args += ["-hwaccel", "cuda"]
     if start_frame:
         args += ["-ss", fmt_seconds(frames_to_seconds(start_frame, rate))]
-    args += ["-i", info.path]
+    args += ["-i", os.path.abspath(info.path)]
     if n_frames < info.nb_frames - start_frame:
         args += ["-t", fmt_seconds(frames_to_seconds(n_frames, rate))]
     args += ["-filter_complex", graph, "-map", "[v]", *a_map]
@@ -161,8 +165,9 @@ def remux_hls_to_mp4(playlist: Path, out_path: Path, on_progress: ProgressFn | N
 def remux_mp4_to_hls(mp4_path: Path, playlist: Path, settings: ProxySettings, on_progress: ProgressFn | None = None,
                      cancel: threading.Event | None = None, duration: float | None = None) -> Path:
     playlist.parent.mkdir(parents=True, exist_ok=True)
-    run_ffmpeg(["-i", str(mp4_path), "-map", "0:v", "-map", "0:a?", "-c", "copy", *_hls_output_args(settings, playlist)],
-               duration=duration, on_progress=on_progress, cancel=cancel)
+    run_ffmpeg(["-i", os.path.abspath(mp4_path), "-map", "0:v", "-map", "0:a?", "-c", "copy",
+                *_hls_output_args(settings, playlist)],
+               duration=duration, on_progress=on_progress, cancel=cancel, cwd=playlist.parent)
     return playlist
 
 
@@ -251,7 +256,8 @@ def build_proxy(
             try:
                 run_ffmpeg(_encode_args(info, settings, 0, info.nb_frames, out_path, aac, hw, final=True,
                                         hls_playlist=playlist),
-                           duration=info.duration, on_progress=enc_progress, cancel=cancel)
+                           duration=info.duration, on_progress=enc_progress, cancel=cancel,
+                           cwd=playlist.parent if playlist is not None else None)
                 break
             except FfmpegError as e:
                 last = e

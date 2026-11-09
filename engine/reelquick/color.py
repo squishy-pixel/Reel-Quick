@@ -68,6 +68,8 @@ class Lut:
             raise ValueError("lut range must be 'narrow' or 'full'")
         if not Path(self.path).is_file():
             raise FileNotFoundError(self.path)
+        # absolute, so the filter graph still finds it when ffmpeg runs from another folder (HLS proxy)
+        object.__setattr__(self, "path", os.path.abspath(self.path))
 
 
 _active_lut: Lut | None = None
