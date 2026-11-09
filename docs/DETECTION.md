@@ -194,6 +194,19 @@ and the round values (15:40, 16:10) suggest scheduled start times. A
 keyframe-only search of one recording (every 250 frames, about 80 s for a
 5.7 h file) finds a few clips and gives the base.
 
+### TJ's notes on these findings
+
+- **Colour will be off, by design of the data.** The library clips were
+  probably rendered to SDR from low-quality 720p HDR sources, and their origin
+  is not certain. Expect them to be close enough to recognise content but
+  never colour-accurate. Matching must lean on shape, layout and text, not
+  colour: compare on luma or edges, or normalise colour before embedding, and
+  measure how much each choice helps.
+- **WK13 CHI–PHI has no recording.** Its 20 library clips stay as reference
+  frames only. TJ can download the game again if it is ever needed (a few
+  days), so plan without it.
+- **WKWC is WK19 GB–CHI** (see Open questions).
+
 ### Surprises
 
 - **The clips are not graded like the recordings.** WK04 clips match their
@@ -236,5 +249,8 @@ keyframe-only search of one recording (every 250 frames, about 80 s for a
 - ~~Does `G:\2025 TNF Game Reviews` hold the original MXFs or reduced
   copies?~~ Reduced copies, every frame kept at 59.94, and the clips were cut
   from them, so the frame numbers line up (see Findings).
-- Which game is the WKWC DEN–CHI library folder, given the WK19 GB–CHI
-  recording?
+- ~~Which game is the WKWC DEN–CHI library folder, given the WK19 GB–CHI
+  recording?~~ TJ: the Wild Card game was in Chicago, so the WK19 GB–CHI
+  recording is that game and goes with the WKWC library folder. The folder's
+  away team (DEN) looks like a slip; matching its clips against the recording
+  will confirm it.
