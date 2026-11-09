@@ -32,9 +32,24 @@ of the broadcast it is in.
 Picking up content that is not ours is not an error. It is wanted, but it is
 categorised separately and, importantly, **named and filed separately**, so it
 can never land among our deliverables. The owner must change the file name
-and the output folder, not just a tag in the project file. Working folder
-names: `Girraphic Content` and `Other Content` (TJ: "probably something like",
-not final; keep them a setting, not hard-coded).
+and the output folder, not just a tag in the project file.
+
+## Filing and naming (decided)
+
+Last season every clip and still was duplicated by hand into folders by type
+and by sequence per game. The app replaces that with one copy, filed once:
+
+- **Folders by content type**: one folder per shell or category (Match-Up,
+  Player Card, Booth, Scenic, Fireworks, ...) inside the game's clips folder.
+  Stills go with their clips, in the type folder's `stills/`.
+- **Phase and sequence in the file name**, not in folders: the sequence keeps
+  program order across types, and the phase says which group it is for.
+- **Content that is not ours goes in `Other Content`**, a folder of its own
+  beside the type folders, so it cannot mix with our deliverables. File
+  names keep the same structure as ours. TJ names these by hand, since what
+  they are is not known in advance; the app fills in date, game, sequence and
+  phase and leaves the description to him.
+- The folder name and the pattern stay settings, not hard-coded.
 
 There are no NBC examples yet. TJ will cut them as they come up; they become a
 second reference set, so ours-or-NBC is a matching problem like the shells.
@@ -47,8 +62,8 @@ from the game, and we work for both, so every clip carries its phase. Phases
 come from four boundaries per game: kickoff, end of the first half,
 second-half kickoff, end of the game (overtime is still `game`). The operator
 can set them, and the detector can suggest them: the score bug is on screen
-during the game and absent in the studio shows. The phase is available to the
-naming pattern and the output folders.
+during the game and absent in the studio shows. The phase is a `{phase}` field
+in the naming pattern (see Filing and naming).
 
 ## Fireworks
 
@@ -118,9 +133,10 @@ and how far suggested in/out points land from the real ones.
 
 ## Open questions
 
-- Final folder names and file-name pattern for content that is not ours
-  (working names above).
-- Should the phase be a folder, part of the file name, or both?
+- Where `{phase}` sits in the default pattern (currently
+  `{date}_{game}_{seq:02d}_{shell}_{camera}_{desc}`): proposed after the
+  sequence, e.g. `261022_WK08-NEvCHI_07_Pre_LowerThird_Herbstreit-pick`, with
+  the phase spelled `Pre`, `Game`, `Half`, `Post`.
 - Does `G:\2025 TNF Game Reviews` hold the original MXFs or reduced copies? If
   reduced, check they keep every frame at 59.94 and start where the original
   recording did, or frame numbers will not line up.
