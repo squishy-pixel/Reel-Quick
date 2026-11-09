@@ -4,6 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Reel Quick cuts broadcast clips out of six-hour MXF game recordings (H.264 4:2:2 Intra, 1080p59.94, HLG, drop-frame time-of-day timecode, 16 mono PCM tracks). A Python engine (`engine/`) does all media work by shelling out to ffmpeg/ffprobe. A React UI (`app/`) talks to it over a local FastAPI server inside a pywebview window. `README.md` has the design rationale and the CLI usage.
 
+Detection (phase 2: finding shells, booth, scenics and fireworks in a game, and telling ours from NBC's and other contributors') is planned in `docs/DETECTION.md`. Read it before working on detection or the clip library.
+
 ## Commands
 
 The engine is managed with uv. Run everything from `engine/`:
