@@ -232,6 +232,9 @@ class Session:
         # Undo keeps whole project snapshots: they are a few hundred KB at most and every edit is small.
         self.undo_stack: list[tuple[str, dict]] = []
         self.redo_stack: list[tuple[str, dict]] = []
+        # Counts every remembered edit and never goes back, so the UI can tell a new project edit apart
+        # from an undo or redo and keep its own in/out marks in the same undo order.
+        self.seq = 0
 
     def require(self) -> Workspace:
         if self.workspace is None:
@@ -253,10 +256,12 @@ class Session:
         self.undo_stack.append((label, w.project.to_dict()))
         del self.undo_stack[:-self.HISTORY_LIMIT]
         self.redo_stack.clear()
+        self.seq += 1
 
     def history(self) -> dict:
         return {"undo": self.undo_stack[-1][0] if self.undo_stack else None,
-                "redo": self.redo_stack[-1][0] if self.redo_stack else None}
+                "redo": self.redo_stack[-1][0] if self.redo_stack else None,
+                "seq": self.seq}
 
     def undo(self) -> str | None:
         return self._swap(self.undo_stack, self.redo_stack)

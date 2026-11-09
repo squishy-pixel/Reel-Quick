@@ -114,9 +114,9 @@ input.text:focus, select.text:focus { outline: none; border-color: var(--yellow)
 .shuttle .knob span { pointer-events: none; }
 .strip .playhead { position: absolute; top: 0; bottom: 0; width: 3px; background: var(--off-white); pointer-events: none; box-shadow: 0 0 0 1px rgba(0,0,0,0.7); z-index: 4; }
 .strip .inout { position: absolute; top: 18px; background: var(--yellow-soft); border-left: 2px solid var(--yellow); border-right: 2px solid var(--yellow); pointer-events: none; }
-.timeline { position: relative; height: 44px; border-top: 1px solid var(--line); cursor: ew-resize; }
+.timeline { position: relative; height: 44px; border-bottom: 1px solid var(--line); cursor: ew-resize; }
 .timeline canvas { display: block; width: 100%; height: 100%; }
-.timeline .hovertc { position: absolute; top: -22px; transform: translateX(-50%); background: var(--black); border: 1px solid var(--line); padding: 1px 6px; font-size: 11px; pointer-events: none; z-index: 6; }
+.timeline .hovertc { position: absolute; top: calc(100% + 2px); transform: translateX(-50%); background: var(--black); border: 1px solid var(--line); padding: 1px 6px; font-size: 11px; pointer-events: none; z-index: 6; }
 .strip-empty { height: 138px; display: flex; align-items: center; justify-content: center; gap: 14px; color: var(--grey); }
 .tcfixed { display: inline-flex; font-family: var(--mono); }
 .tcfixed .d { display: inline-block; width: 0.6em; text-align: center; }
@@ -127,26 +127,42 @@ input.text:focus, select.text:focus { outline: none; border-color: var(--yellow)
 .player .stage { position: relative; min-height: 0; display: flex; align-items: center; justify-content: center; }
 .player video, .player img.frame { max-width: 100%; max-height: 100%; width: auto; height: auto; display: block; }
 .player .nothing { color: var(--grey); text-align: center; line-height: 1.8; }
-.transport { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; padding: 6px 12px; background: var(--off-black); border-top: 1px solid var(--line); overflow: hidden; }
+/* Two fixed rows, so nothing moves under the mouse: playback on top, marking below. */
+.transport { display: grid; grid-template-rows: auto auto; gap: 6px; padding: 6px 12px; background: var(--off-black); border-top: 1px solid var(--line); overflow: hidden; }
+.transport .trow { display: flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; }
+.transport .tgroup { display: flex; gap: 3px; align-items: center; margin: 0 6px 0 auto; }
+.transport .tgroup + * { margin-right: auto; }
+.transport .gap { width: 8px; flex: none; }
+.transport .opt { display: flex; gap: 6px; align-items: center; font-size: 11px; }
+.btn.icon { min-width: 28px; display: inline-flex; align-items: center; justify-content: center; letter-spacing: 0; }
+.btn.icon.play { min-width: 40px; }
+.btn:disabled { opacity: 0.35; cursor: default; }
 .transport label { white-space: nowrap; }
-.transport .readout { display: flex; gap: 12px; align-items: baseline; border-left: 3px solid var(--yellow); padding-left: 10px; margin-right: 6px; }
+.transport .readout { display: flex; gap: 12px; align-items: center; border-left: 3px solid var(--yellow); padding-left: 10px; margin-right: 6px; }
+.transport .readout .stack { display: grid; width: 118px; line-height: 1.15; }
+.transport .readout .stack .num { color: var(--grey); font-size: 12px; }
+.transport .readout .stack .mode { font-size: 9px; letter-spacing: 0.14em; overflow: hidden; text-overflow: ellipsis; }
 .transport .readout .big { font-size: 22px; font-weight: 500; }
 .transport .readout .unit { font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); margin-left: 3px; }
-.transport .zoomctl { display: flex; gap: 6px; align-items: center; font-size: 11px; }
+.transport .zoomctl { display: flex; gap: 6px; align-items: center; font-size: 11px; color: var(--grey); margin-left: 8px; padding-left: 12px; border-left: 1px solid var(--line); }
 .transport .zoomctl input { width: 70px; accent-color: var(--yellow); }
 .stillchips { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; min-height: 22px; }
 .stillchips .chip i { font-style: normal; margin-left: 6px; opacity: 0.7; }
 .stillchips .chip i:hover { opacity: 1; color: var(--red); }
 .stillchips .chip.on i:hover { color: var(--off-black); }
 .transport .spacer { flex: 1; }
-.transport .mark { display: flex; align-items: baseline; gap: 6px; padding: 2px 8px; border: 1px solid var(--line); }
+.transport .mark { display: flex; align-items: baseline; gap: 6px; padding: 2px 8px; border: 1px solid var(--line); width: 132px; flex: none; cursor: pointer; }
+.transport .mark .tc { color: var(--dim); }
+.transport .mark.set .tc { color: var(--off-white); }
+.transport .mark.dur { cursor: default; border-style: dashed; }
 .transport .mark.set { border-color: var(--yellow); }
 .transport .mark .k { font-size: 9px; letter-spacing: 0.16em; color: var(--dim); }
 
 /* Side panels */
 .panel { padding: 10px 12px; border-bottom: 1px solid var(--line); }
 .panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-.panel-head h2::before { content: "> "; color: var(--yellow); }
+/* A yellow tab before each section name: colour and rhythm, without looking like a disclosure triangle. */
+.panel-head h2::before { content: ""; display: inline-block; width: 3px; height: 9px; background: var(--yellow); margin-right: 8px; vertical-align: -1px; }
 .jobrow { display: grid; grid-template-columns: 70px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 4px 0; }
 .jobrow .name { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--grey); }
 .jobrow .status { font-size: 11px; color: var(--grey); }
@@ -207,3 +223,18 @@ input.text:focus, select.text:focus { outline: none; border-color: var(--yellow)
 .recentrow .ok { color: var(--green); }
 .recentrow .offline { margin: 0; }
 .quickexport { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--off-black); font-size: 11px; }
+
+/* Settings window */
+.modal.settings .settings-body { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; max-height: 70vh; }
+.tabs { display: flex; gap: 2px; padding: 0 14px; border-bottom: 1px solid var(--line); }
+.tab { background: transparent; border: none; border-bottom: 2px solid transparent; color: var(--grey); padding: 8px 12px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.1em; font-size: 11px; font-weight: 600; }
+.tab.on { color: var(--off-white); border-bottom-color: var(--yellow); }
+.keys { overflow-y: auto; padding: 6px 14px 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 0 24px; align-content: start; }
+.keygroup h3 { font-size: 10px; color: var(--yellow); letter-spacing: 0.16em; margin: 12px 0 4px; }
+.keyrow { display: grid; grid-template-columns: minmax(0, 1fr) 120px 34px; align-items: center; gap: 6px; padding: 2px 0; border-bottom: 1px solid var(--line-soft); font-size: 12px; }
+.kbdbtn { background: var(--off-black); border: 1px solid var(--line); border-bottom-width: 2px; color: var(--off-white); font-family: var(--mono); font-size: 11px; padding: 2px 6px; cursor: pointer; border-radius: 3px; text-align: center; }
+.kbdbtn.changed { border-color: var(--yellow); }
+.kbdbtn.listening { background: var(--yellow); color: var(--off-black); }
+.keyrow .rowtools { display: flex; gap: 6px; color: var(--grey); font-style: normal; }
+.keyrow .rowtools i { cursor: pointer; font-style: normal; }
+.keyrow .rowtools i:hover { color: var(--off-white); }

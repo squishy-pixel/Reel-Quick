@@ -1,14 +1,20 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, native, type AppState, type Clip, type FilmstripIndex, type Recent } from "./api";
 import { Filmstrip, THUMB_MAX, THUMB_MIN } from "./components/Filmstrip";
 import { Tc } from "./components/Tc";
 import { Player, type PlayerHandle } from "./components/Player";
 import { Shuttle } from "./components/Shuttle";
 import { ClipEditor, ClipList, type QuickExport } from "./components/ClipList";
-import { AudioDialog, JobsPanel, ListsDialog, MarkersPanel, RenderPanel, learnRate } from "./components/Panels";
+import { AudioDialog, JobsPanel, MarkersPanel, RenderPanel, learnRate } from "./components/Panels";
 import { FileDialog } from "./components/FileDialog";
+import { SettingsDialog } from "./components/Settings";
+import { ACTIONS, type ActionId, actionFor, bindingsFrom, comboOf, overridesOf, showKey, tip } from "./shortcuts";
 
-type Dialog = null | { kind: "open" } | { kind: "outdir" } | { kind: "help" } | { kind: "still" } | { kind: "lists" } | { kind: "audio"; tracks: { track: number; url: string; channels: number }[] | null };
+type Dialog = null | { kind: "open" } | { kind: "outdir" } | { kind: "help" } | { kind: "still" } | { kind: "settings"; tab?: "shortcuts" | "lists" } | { kind: "audio"; tracks: { track: number; url: string; channels: number }[] | null };
+
+// One undo order for everything: the in/out marks live here in the window, project edits on the server.
+// A "server" entry stands for one remembered project edit; the server's own stack holds the snapshot.
+type UndoEntry = { kind: "marks"; in: number | null; out: number | null; label: string } | { kind: "server" };
 
 export default function App() {
   const [state, setState] = useState<AppState | null>(null);
@@ -38,6 +44,11 @@ export default function App() {
   const [thumbW, setThumbWState] = useState(() => { try { return Math.max(THUMB_MIN, Math.min(THUMB_MAX, Number(localStorage.getItem("rq.thumbW")) || 160)); } catch { return 160; } });
   const setThumbW = (w: number) => { setThumbWState(w); try { localStorage.setItem("rq.thumbW", String(w)); } catch { /* ignore */ } };
   const player = useRef<PlayerHandle>(null);
+  const undoStack = useRef<UndoEntry[]>([]);
+  const redoStack = useRef<UndoEntry[]>([]);
+  const seqSeen = useRef<number | null>(null);
+  const marks = useRef<{ in: number | null; out: number | null }>({ in: null, out: null });
+  const [, setUndoTick] = useState(0);                 // re-render the undo buttons when the window's stack changes
   const csvInput = useRef<HTMLInputElement>(null);
   const stillName = useRef<HTMLInputElement>(null);
 
@@ -46,6 +57,31 @@ export default function App() {
   const run = useCallback(async <T,>(p: Promise<T>, after?: (r: T) => void): Promise<T | undefined> => {
     try { const r = await p; after?.(r); await refresh(); return r; } catch (e: any) { say(e.message, true); return undefined; }
   }, [refresh, say]);
+
+  // A new project edit (the server's edit counter moved) joins the undo order; undo and redo leave it alone.
+  useEffect(() => {
+    const seq = state?.history?.seq;
+    if (seq === undefined || seq === null) return;
+    if (seqSeen.current !== null && seq > seqSeen.current) {
+      for (let i = seqSeen.current; i < seq; i++) undoStack.current.push({ kind: "server" });
+      redoStack.current = [];
+      setUndoTick((t) => t + 1);
+    }
+    seqSeen.current = seq;
+  }, [state?.history?.seq]);
+  // Every change of the in/out marks goes through here so it can be undone like any other edit.
+  const setMarks = useCallback((nextIn: number | null, nextOut: number | null, label: string) => {
+    const cur = marks.current;
+    if (cur.in === nextIn && cur.out === nextOut) return;
+    undoStack.current.push({ kind: "marks", in: cur.in, out: cur.out, label });
+    redoStack.current = [];
+    marks.current = { in: nextIn, out: nextOut };
+    setIn(nextIn); setOut(nextOut); setUndoTick((t) => t + 1);
+  }, []);
+  const resetMarks = useCallback(() => {
+    marks.current = { in: null, out: null }; setIn(null); setOut(null);
+    undoStack.current = []; redoStack.current = []; seqSeen.current = null; setUndoTick((t) => t + 1);
+  }, []);
 
   // Poll: fast while anything runs, slow otherwise.
   useEffect(() => { refresh(); }, [refresh]);
@@ -82,7 +118,7 @@ export default function App() {
   }, [renderJob]);
 
   // ---- actions ---------------------------------------------------------
-  const openPath = (p: string) => run(api.open(p), () => { setIn(null); setOut(null); setSelected(null); setFrame(0); setPendingStill(null); });
+  const openPath = (p: string) => run(api.open(p), () => { resetMarks(); setSelected(null); setFrame(0); setPendingStill(null); });
   const openFile = async () => {
     const n = native();
     if (n) { const p = await n.pick_file(); if (p) openPath(p); }
@@ -106,11 +142,11 @@ export default function App() {
     if (hi <= lo) { say("Set an in and an out point first (I and O)", true); return; }
     const still = pendingStill !== null && pendingStill >= lo && pendingStill < hi ? pendingStill : null;
     run(api.addClip({ in_frame: lo, out_frame: hi }), async (r) => {
-      setSelected(r.clip.id); setIn(null); setOut(null);
+      setSelected(r.clip.id); setMarks(null, null, "in and out of the new clip");
       if (still !== null) { setPendingStill(null); await api.patchClip(r.clip.id, { still_frame: still }).catch(() => {}); await refresh(); }
       say(`Added ${r.clip.name}${still !== null ? " with its still" : ""}`);
     });
-  }, [project, inPoint, outPoint, frame, pendingStill, run, say, refresh]);
+  }, [project, inPoint, outPoint, frame, pendingStill, run, say, refresh, setMarks]);
   const patchClip = useCallback((id: string, patch: Partial<Clip>) => run(api.patchClip(id, patch)), [run]);
   const deleteClip = useCallback((id: string) => { if (confirm("Delete this clip from the list?")) run(api.deleteClip(id), () => { if (selected === id) setSelected(null); }); }, [run, selected]);
   const setStill = useCallback(() => {
@@ -150,54 +186,92 @@ export default function App() {
     const target = dir > 0 ? ms.find((f) => f > frame + 1) : [...ms].reverse().find((f) => f < frame - 1);
     if (target !== undefined) jumpTo(target); else say(dir > 0 ? "No marker after this point" : "No marker before this point");
   };
-  // Every edit of the project (clips, in/out, stills, markers, lists, settings) can be taken back, and put back.
+  // Every edit can be taken back, and put back, in the order it was made: in/out marks, clips, stills,
+  // markers, settings. Marks are restored here; a project edit is undone by the server.
   const undo = useCallback((redo = false) => {
-    if (!state?.history || !(redo ? state.history.redo : state.history.undo)) { say(redo ? "Nothing to redo" : "Nothing to undo"); return; }
-    run(redo ? api.redo() : api.undo(), (r) => say(`${redo ? "Redid" : "Undid"}: ${r.label}`));
+    const from = redo ? redoStack.current : undoStack.current;
+    const to = redo ? undoStack.current : redoStack.current;
+    const serverHas = !!(redo ? state?.history?.redo : state?.history?.undo);
+    const e = from.pop() ?? (serverHas ? { kind: "server" as const } : undefined);   // edits from before this window opened
+    if (!e) { say(redo ? "Nothing to redo" : "Nothing to undo"); return; }
+    if (e.kind === "marks") {
+      const cur = marks.current;
+      to.push({ kind: "marks", in: cur.in, out: cur.out, label: e.label });
+      marks.current = { in: e.in, out: e.out }; setIn(e.in); setOut(e.out); setUndoTick((t) => t + 1);
+      say(`${redo ? "Redid" : "Undid"}: ${e.label}`);
+      return;
+    }
+    if (!serverHas) { setUndoTick((t) => t + 1); say(redo ? "Nothing to redo" : "Nothing to undo"); return; }
+    run(redo ? api.redo() : api.undo(), (r) => { to.push({ kind: "server" }); setUndoTick((t) => t + 1); say(`${redo ? "Redid" : "Undid"}: ${r.label}`); });
   }, [state?.history, run, say]);
+  const undoLabel = (redo = false): string | null => {
+    const top = (redo ? redoStack.current : undoStack.current).at(-1);
+    if (top?.kind === "marks") return top.label;
+    return (redo ? state?.history?.redo : state?.history?.undo) ?? null;
+  };
 
   // ---- keyboard --------------------------------------------------------
+  const bindings = useMemo(() => bindingsFrom(state?.prefs?.shortcuts), [state?.prefs]);
+  const markIn = useCallback(() => setMarks(frame, outPoint !== null && outPoint <= frame ? null : outPoint, "mark in"), [frame, outPoint, setMarks]);
+  const markOut = useCallback(() => setMarks(inPoint !== null && inPoint >= frame ? null : inPoint, frame, "mark out"), [frame, inPoint, setMarks]);
+  const clearMarks = useCallback(() => setMarks(null, null, "clear in and out"), [setMarks]);
+  const doAction = useCallback((id: ActionId) => {
+    if (!project) { if (id === "help") setDialog({ kind: "help" }); return; }
+    const p = player.current;
+    const step = (n: number) => { p?.pause(); seek(frame + n); };
+    switch (id) {
+      case "play": p?.toggle(); break;
+      case "pause": p?.pause(); break;
+      case "shuttle_fwd": p?.shuttle(1); break;
+      case "shuttle_fwd_slow": p?.shuttle(1, true); break;
+      case "shuttle_back": p?.shuttle(-1); break;
+      case "shuttle_back_slow": p?.shuttle(-1, true); break;
+      case "step_back": step(-1); break;
+      case "step_fwd": step(1); break;
+      case "back_1s": step(-Math.round(fps)); break;
+      case "fwd_1s": step(Math.round(fps)); break;
+      case "back_10s": step(-Math.round(fps * 10)); break;
+      case "fwd_10s": step(Math.round(fps * 10)); break;
+      case "go_start": seek(0); break;
+      case "go_end": seek(project.info.nb_frames - 1); break;
+      case "go_in": if (inPoint !== null) jumpTo(inPoint); else say("No in point set"); break;
+      case "go_out": if (outPoint !== null) jumpTo(outPoint); else say("No out point set"); break;
+      case "mark_in": markIn(); break;
+      case "mark_out": markOut(); break;
+      case "clear_in": setMarks(null, outPoint, "clear in"); break;
+      case "clear_out": setMarks(inPoint, null, "clear out"); break;
+      case "clear_marks": clearMarks(); break;
+      case "add_clip": addClip(); break;
+      case "escape": setMarks(null, null, "clear in and out"); setSelected(null); setPendingStill(null); break;
+      case "prev_marker": nextMarker(-1); break;
+      case "next_marker": nextMarker(1); break;
+      case "add_marker": run(api.addMarker(frame, ""), () => say("Marker added")); break;
+      case "still": setStill(); break;
+      case "named_still": setDialog({ kind: "still" }); break;
+      case "source_frame": setExact((x) => !x); break;
+      case "delete_clip": if (selectedClip) deleteClip(selectedClip.id); break;
+      case "undo": undo(); break;
+      case "redo": undo(true); break;
+      case "help": setDialog({ kind: "help" }); break;
+    }
+  }, [project, frame, fps, inPoint, outPoint, addClip, setStill, selectedClip, deleteClip, seek, jumpTo, run, say, undo, setMarks, markIn, markOut, clearMarks]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") { if (e.key === "Escape") (e.target as HTMLElement).blur(); return; }
-      if (!project) return;
-      const p = player.current;
-      const step = (n: number) => { p?.pause(); seek(frame + n); };
-      // Arrows: one frame; Shift a second; Ctrl / Cmd ten seconds. Hold for auto-repeat.
-      const big = e.shiftKey ? Math.round(fps) : e.ctrlKey || e.metaKey ? Math.round(fps * 10) : 1;
-      if ((e.metaKey || e.ctrlKey) && (e.key === "z" || e.key === "Z")) { e.preventDefault(); undo(e.shiftKey); return; }
-      if ((e.metaKey || e.ctrlKey) && (e.key === "y" || e.key === "Y")) { e.preventDefault(); undo(true); return; }
-      if (e.metaKey || e.ctrlKey) { if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return; }
-      switch (e.key) {
-        case " ": e.preventDefault(); p?.toggle(); break;
-        case "k": case "K": p?.pause(); break;
-        case "l": p?.shuttle(1); break;
-        case "L": p?.shuttle(1, true); break;
-        case "j": p?.shuttle(-1); break;
-        case "J": p?.shuttle(-1, true); break;
-        case "ArrowLeft": e.preventDefault(); step(-big); break;
-        case "ArrowRight": e.preventDefault(); step(big); break;
-        case "Home": seek(0); break;
-        case "End": seek(project.info.nb_frames - 1); break;
-        case "i": case "I": setIn(frame); if (outPoint !== null && outPoint <= frame) setOut(null); break;
-        case "o": case "O": setOut(frame); if (inPoint !== null && inPoint >= frame) setIn(null); break;
-        case "Enter": addClip(); break;
-        case "Escape": setIn(null); setOut(null); setSelected(null); setPendingStill(null); break;
-        case "[": nextMarker(-1); break;
-        case "]": nextMarker(1); break;
-        case "m": case "M": run(api.addMarker(frame, ""), () => say("Marker added")); break;
-        case "s": if (e.shiftKey) setDialog({ kind: "still" }); else setStill(); break;
-        case "S": setDialog({ kind: "still" }); break;
-        case "f": case "F": setExact((x) => !x); break;
-        case "Delete": case "Backspace": if (selectedClip) deleteClip(selectedClip.id); break;
-        case "?": setDialog({ kind: "help" }); break;
-        default: return;
-      }
+      if (dialog) { if (e.key === "Escape") setDialog(null); return; }   // keys belong to the open window
+      let combo = comboOf(e);
+      if (!combo) return;
+      // the usual aliases: Backspace deletes like Delete, Ctrl+Y redoes like Ctrl+Shift+Z
+      if (combo === "Backspace" && bindings.delete_clip === "Delete") combo = "Delete";
+      const id = combo === "Mod+Y" ? "redo" : actionFor(bindings, combo);
+      if (!id) return;
+      e.preventDefault();
+      doAction(id);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [project, frame, fps, inPoint, outPoint, addClip, setStill, selectedClip, deleteClip, seek, jumpTo, run, say, undo]);
+  }, [bindings, doAction, dialog]);
 
   const onFrame = useCallback((f: number) => { setFrame(f); }, []);
 
@@ -217,13 +291,15 @@ export default function App() {
         ) : <div className="file dim">No file open</div>}
         {project && (
           <>
-            <button className="btn small" onClick={() => undo()} disabled={!state.history?.undo} title={state.history?.undo ? `Undo ${state.history.undo} (Cmd/Ctrl+Z)` : "Nothing to undo"}>↶ Undo</button>
-            <button className="btn small" onClick={() => undo(true)} disabled={!state.history?.redo} title={state.history?.redo ? `Redo ${state.history.redo} (Shift+Cmd/Ctrl+Z)` : "Nothing to redo"}>↷</button>
+            <button className="btn small" onClick={() => undo()} disabled={!undoLabel()} title={undoLabel() ? tip(`Undo ${undoLabel()}`, bindings, "undo") : "Nothing to undo"}>↶ Undo</button>
+            <button className="btn small" onClick={() => undo(true)} disabled={!undoLabel(true)} title={undoLabel(true) ? tip(`Redo ${undoLabel(true)}`, bindings, "redo") : "Nothing to redo"}>↷</button>
           </>
         )}
         <button className="btn" onClick={openFile} title="Open a different recording">Open recording…</button>
-        <button className="btn small" onClick={() => setDialog({ kind: "lists" })} title="Edit the shell, camera, engine and segment lists">Lists</button>
-        <button className="btn small" onClick={() => setDialog({ kind: "help" })} title="Keyboard shortcuts">?</button>
+        <button className="btn small icon" onClick={() => setDialog({ kind: "settings" })} title="Settings: keyboard shortcuts, lists" aria-label="Settings">
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L14.9 3h-4l-.4 2.9a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.4 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.9h4l.4-2.9a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5zM12.9 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" /></svg>
+        </button>
+        <button className="btn small" onClick={() => setDialog({ kind: "help" })} title={tip("Keyboard shortcuts", bindings, "help")}>?</button>
       </div>
 
       <div className="main">
@@ -231,25 +307,47 @@ export default function App() {
           <>
             <Player ref={player} info={info!} proxyUrl={ws!.proxy_url} frame={frame} onFrame={onFrame} exactView={exactView} onStatus={setPstatus} onError={(m) => say(m, true)} startOffset={ws!.proxy_start_offset} />
             <div className="transport">
-              <div className="readout">
-                <Tc value={tcOf(frame)} className="big" />
-                <span className="dim num" style={{ minWidth: 110 }} title="Frames from the start of the recording (frame 0 is the first frame of the file)">{frame.toLocaleString()}<span className="unit">fr</span></span>
-                <span className={`caps ${pstatus.mode === "not in proxy yet" ? "accent" : "dim"}`} style={{ fontSize: 9, letterSpacing: "0.14em", minWidth: 70, whiteSpace: "nowrap" }} title={pstatus.mode === "not in proxy yet" ? "The proxy has not been built this far yet: the picture is a source frame or the nearest filmstrip thumbnail, and play waits until the proxy reaches here." : undefined}>{pstatus.rate !== 0 ? <span className="accent">{pstatus.rate}×</span> : pstatus.mode}</span>
+              <div className="trow">
+                <div className="readout">
+                  <Tc value={tcOf(frame)} className="big" />
+                  <div className="stack" title={pstatus.mode === "not in proxy yet" ? "The proxy has not been built this far yet: the picture is a source frame or the nearest filmstrip thumbnail, and play waits until the proxy reaches here." : "Frames from the start of the recording, and what the picture is showing"}>
+                    <span className="num">{frame.toLocaleString()}<span className="unit">fr</span></span>
+                    <span className={`caps mode ${pstatus.mode === "not in proxy yet" || pstatus.rate !== 0 ? "accent" : "dim"}`}>{pstatus.rate !== 0 ? `${pstatus.rate}×` : pstatus.mode}</span>
+                  </div>
+                </div>
+                <div className="tgroup">
+                  <button className="btn small" onClick={() => nextMarker(-1)} title={tip("Previous marker", bindings, "prev_marker")}>◀ Prev</button>
+                  <button className="btn small icon" onClick={() => doAction("go_in")} disabled={inPoint === null} title={tip("Go to in", bindings, "go_in")}>⇤</button>
+                  <button className="btn small icon" onClick={() => doAction("step_back")} title={tip("Back one frame", bindings, "step_back")}>◀|</button>
+                  <button className="btn small icon play" onClick={() => player.current?.toggle()} title={tip("Play / pause", bindings, "play")}>{pstatus.rate !== 0 ? "❚❚" : "▶"}</button>
+                  <button className="btn small icon" onClick={() => doAction("step_fwd")} title={tip("Forward one frame", bindings, "step_fwd")}>|▶</button>
+                  <button className="btn small icon" onClick={() => doAction("go_out")} disabled={outPoint === null} title={tip("Go to out", bindings, "go_out")}>⇥</button>
+                  <button className="btn small" onClick={() => nextMarker(1)} title={tip("Next marker", bindings, "next_marker")}>Next ▶</button>
+                </div>
+                <Shuttle rate={pstatus.rate} onRate={(r) => player.current?.setRate(r)} disabled={!ws!.proxy_url} />
               </div>
-              <button className="btn small" onClick={() => player.current?.toggle()} title="Space">▶ / ❚❚</button>
-              <Shuttle rate={pstatus.rate} onRate={(r) => player.current?.setRate(r)} disabled={!ws!.proxy_url} />
-              <span style={{ width: 10 }} />
-              <button className="btn small" onClick={() => nextMarker(-1)} title="Previous marker  [">◀ mk</button>
-              <button className="btn small" onClick={() => nextMarker(1)} title="Next marker  ]">mk ▶</button>
-              <span style={{ width: 10 }} />
-              <div className={`mark ${inPoint !== null ? "set" : ""}`} onClick={() => setIn(frame)}><span className="k">In</span>{inPoint !== null ? <Tc value={tcOf(inPoint)} /> : <span className="tc">—</span>}</div>
-              <div className={`mark ${outPoint !== null ? "set" : ""}`} onClick={() => setOut(frame)}><span className="k">Out</span>{outPoint !== null ? <Tc value={tcOf(outPoint)} /> : <span className="tc">—</span>}</div>
-              <button className="btn primary small" onClick={addClip} disabled={inPoint === null && outPoint === null}>Add clip ⏎</button>
-              <button className="btn small" onClick={setStill} title="S: set or add a still at this frame">Still</button>
-              <span className="spacer" />
-              <label className="dim" style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 11 }}><input type="checkbox" checked={exactView} onChange={(e) => setExact(e.target.checked)} /> source frame (F)</label>
-              <label className="dim" style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 11 }}><input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} /> follow</label>
-              <label className="dim zoomctl" title="Thumbnail size (Ctrl+wheel over the strip)"><input type="range" min={THUMB_MIN} max={THUMB_MAX} step={8} value={thumbW} onChange={(e) => setThumbW(Number(e.target.value))} /></label>
+              <div className="trow">
+                <button className="btn small" onClick={markIn} title={tip("Mark in at the playhead", bindings, "mark_in")}>{"{"} In</button>
+                <button className="btn small" onClick={markOut} title={tip("Mark out at the playhead", bindings, "mark_out")}>Out {"}"}</button>
+                <div className={`mark ${inPoint !== null ? "set" : ""}`} onClick={() => inPoint !== null && jumpTo(inPoint)} title={inPoint !== null ? tip("Go to in", bindings, "go_in") : tip("No in point: mark one", bindings, "mark_in")}>
+                  <span className="k">In</span><span className="tc">{inPoint !== null ? tcOf(inPoint) : "--:--:--:--"}</span></div>
+                <div className={`mark ${outPoint !== null ? "set" : ""}`} onClick={() => outPoint !== null && jumpTo(outPoint)} title={outPoint !== null ? tip("Go to out", bindings, "go_out") : tip("No out point: mark one", bindings, "mark_out")}>
+                  <span className="k">Out</span><span className="tc">{outPoint !== null ? tcOf(outPoint) : "--:--:--:--"}</span></div>
+                <div className={`mark dur ${inPoint !== null && outPoint !== null && outPoint > inPoint ? "set" : ""}`} title="Duration of the in–out range">
+                  <span className="k">Dur</span><span className="tc">{inPoint !== null && outPoint !== null && outPoint > inPoint ? durOf(outPoint - inPoint) : "--:--:--:--"}</span></div>
+                <button className="btn small icon" onClick={clearMarks} disabled={inPoint === null && outPoint === null} title={tip("Clear in and out", bindings, "clear_marks")}>✕</button>
+                <span className="gap" />
+                <button className="btn primary small" onClick={addClip} disabled={inPoint === null && outPoint === null} title={tip("Add the in–out range as a clip", bindings, "add_clip")}>Add clip</button>
+                <button className="btn small" onClick={setStill} title={tip("Still: set this clip's still, add another, or mark one for the next clip", bindings, "still")}>Still</button>
+                <button className="btn small" onClick={() => doAction("add_marker")} title={tip("Add a marker at the playhead", bindings, "add_marker")}>Marker</button>
+                <span className="spacer" />
+                <label className="dim opt" title={tip("Show the exact source frame while paused (works before the proxy exists)", bindings, "source_frame")}><input type="checkbox" checked={exactView} onChange={(e) => setExact(e.target.checked)} /> Source frame</label>
+                <label className="dim opt" title="Keep the playhead in view in the thumbnails"><input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} /> Follow</label>
+                <label className="dim zoomctl" title="Thumbnail size (Ctrl+wheel over the thumbnails)">
+                  <svg viewBox="0 0 20 14" width="16" height="12" aria-hidden="true"><rect x="0.5" y="4.5" width="6" height="5" fill="none" stroke="currentColor" /><rect x="9.5" y="0.5" width="10" height="13" fill="none" stroke="currentColor" /></svg>
+                  <input type="range" min={THUMB_MIN} max={THUMB_MAX} step={8} value={thumbW} onChange={(e) => setThumbW(Number(e.target.value))} aria-label="Thumbnail size" />
+                </label>
+              </div>
             </div>
             <div className="strip-area">
               {strip ? (
@@ -295,13 +393,14 @@ export default function App() {
                 onAudioTracks={(t) => run(api.settings({ audio_tracks: t }), () => say("Stereo pair saved. Rebuild the proxy to hear it there."))}
                 onSurround={(sv) => run(api.settings(sv))}
                 onAudioPreview={() => { setDialog({ kind: "audio", tracks: null }); api.audioPreview(frame).then((r) => setDialog({ kind: "audio", tracks: r.tracks })).catch((e) => { setDialog(null); say(e.message, true); }); }} />
-              <MarkersPanel markers={project.markers} info={info!} onSeek={jumpTo} onImport={importCsv} onDelete={(f) => run(api.deleteMarker(f))}
+              <MarkersPanel markerKey={showKey(bindings.add_marker || undefined)} markers={project.markers} info={info!} onSeek={jumpTo} onImport={importCsv} onDelete={(f) => run(api.deleteMarker(f))}
                 onDeleteUntimed={(i) => run(api.deleteUntimed(i))}
                 offset={project.settings.log_offset_seconds} onOffset={(s) => run(api.settings({ log_offset_seconds: s }), () => say("Log clock saved. Import the log again to apply it."))} />
               <div className="panel-head" style={{ padding: "10px 12px 0" }}><h2>Clips <span className="dim" style={{ letterSpacing: 0 }}>{project.clips.length}</span></h2>
                 {selectedClip && <button className="btn small" onClick={() => jumpTo(selectedClip.in_frame)}>Go to in</button>}</div>
             </div>
-            <ClipList clips={project.clips} info={info!} selected={selected} onSelect={setSelected} onPatch={patchClip} onDelete={deleteClip} onSeek={jumpTo} onExport={(id, o) => startRender([id], o)} renderRows={renderRows} />
+            <ClipList clips={project.clips} info={info!} selected={selected} onSelect={setSelected} onPatch={patchClip} onDelete={deleteClip} onSeek={jumpTo} onExport={(id, o) => startRender([id], o)} renderRows={renderRows}
+              keys={{ in: showKey(bindings.mark_in || undefined), out: showKey(bindings.mark_out || undefined), add: showKey(bindings.add_clip || undefined) }} />
             <div>
               {selectedClip && <ClipEditor clip={selectedClip} info={info!} frame={frame} vocab={state.vocab} onPatch={(p) => patchClip(selectedClip.id, p)} onSeek={jumpTo} onSay={say} />}
               <RenderPanel job={renderJob} clipCount={project.clips.length} missingStills={project.clips.filter((c) => c.still_frame === null).length} selectedId={selected} outDir={ws!.clips_dir}
@@ -316,7 +415,7 @@ export default function App() {
       </div>
 
       <input ref={csvInput} type="file" accept=".csv,.tsv,.txt" style={{ display: "none" }} onChange={onCsvFile} />
-      {dialog?.kind === "open" && <FileDialog title="Open a recording" onClose={() => setDialog(null)} onPick={(p) => { setDialog(null); run(api.open(p), () => { setIn(null); setOut(null); setSelected(null); setFrame(0); }); }} />}
+      {dialog?.kind === "open" && <FileDialog title="Open a recording" onClose={() => setDialog(null)} onPick={(p) => { setDialog(null); openPath(p); }} />}
       {dialog?.kind === "outdir" && <FileDialog title="Output folder for clips" dirsOnly start={ws?.clips_dir} onClose={() => setDialog(null)} onPick={(p) => { setDialog(null); run(api.settings({ output_dir: p })); }} />}
       {dialog?.kind === "still" && project && (
         <div className="modal-bg" onClick={() => setDialog(null)}>
@@ -331,13 +430,17 @@ export default function App() {
         </div>
       )}
       {dialog?.kind === "audio" && <AudioDialog tracks={dialog.tracks} tcLabel={tcOf(frame)} onClose={() => setDialog(null)} />}
-      {dialog?.kind === "lists" && <ListsDialog vocab={state.vocab} onClose={() => setDialog(null)} onSave={(v) => { setDialog(null); run(api.vocab(v), () => say("Lists saved")); }} />}
+      {dialog?.kind === "settings" && <SettingsDialog initialTab={dialog.tab} bindings={bindings} vocab={state.vocab} onClose={() => setDialog(null)}
+        onSaveBindings={(b) => run(api.prefs({ shortcuts: overridesOf(b) }), () => say("Keyboard shortcuts saved"))}
+        onSaveVocab={(v) => run(api.vocab(v), () => say("Lists saved"))} />}
       {dialog?.kind === "help" && (
         <div className="modal-bg" onClick={() => setDialog(null)}>
           <div className="modal" style={{ width: 520, gridTemplateRows: "auto 1fr" }} onClick={(e) => e.stopPropagation()}>
             <header><h2>Keyboard</h2></header>
             <div className="help">
-              {([["Space", "play / pause"], ["shuttle", "drag the knob in the transport: further is faster, let go to stop"], ["J / K / L", "shuttle back / pause / shuttle forward (press again for faster)"], ["Shift+J / Shift+L", "slow shuttle: quarter speed, then half"], ["← →", "one frame (hold to repeat); Shift = one second; Ctrl / Cmd = ten seconds"], ["two-finger swipe", "jog over the picture: swipe right to go forward; slow for single frames, flick for seconds (Shift+wheel with a mouse)"], ["Cmd/Ctrl+Z", "undo the last edit (Shift for redo): in/out, stills, clips, markers, settings"], ["I / O", "set in / out at the playhead"], ["Enter", "add the in–out range as a clip"], ["Esc", "clear in / out and selection"], ["[ ]", "previous / next marker"], ["M", "drop a marker at the playhead"], ["S", "still: sets the clip's still, adds an extra one if it has one, or marks the frame for the next clip"], ["Shift+S", "save this frame as a named still"], ["F", "show the exact source frame while paused (works before the proxy exists)"], ["Ctrl+wheel", "zoom the thumbnails"], ["Delete", "remove the selected clip"]] as const).map(([k, v]) => <><span className="kbd">{k}</span><span>{v}</span></>)}
+              {ACTIONS.map((a) => <Fragment key={a.id}><span className="kbd">{showKey(bindings[a.id] || undefined)}</span><span>{a.label}</span></Fragment>)}
+              {([["shuttle", "drag the knob in the transport: further is faster, let go to stop"], ["two-finger swipe", "jog over the picture: swipe right to go forward; slow for single frames, flick for seconds (Shift+wheel with a mouse)"], ["Ctrl+wheel", "zoom the thumbnails"]] as const).map(([k, v]) => <Fragment key={k}><span className="kbd">{k}</span><span>{v}</span></Fragment>)}
+              <span /><span className="dim">Change any of these in Settings ⚙ → Keyboard.</span>
             </div>
           </div>
         </div>
@@ -354,6 +457,10 @@ export default function App() {
     const m = tc && /^(\d{2}):(\d{2}):(\d{2})[:;.](\d{2})$/.exec(tc);
     if (m) { const [hh, mm, ss, ff] = m.slice(1).map(Number); base = n * 3600 * hh + n * 60 * mm + n * ss + ff; if (info.drop_frame) { const d = 2 * Math.floor(n / 30); const mins = 60 * hh + mm; base -= d * (mins - Math.floor(mins / 10)); } }
     return framesToTcLocal(base + f, n, info.drop_frame);
+  }
+  function durOf(n: number) {
+    // a duration counts frames, so it is always non-drop
+    return framesToTcLocal(n, Math.round(info?.fps ?? 60), false);
   }
   function saveStill() {
     const name = stillName.current?.value.trim();

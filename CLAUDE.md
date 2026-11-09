@@ -46,6 +46,10 @@ ffmpeg lookup order is in `ffmpeg.py:_candidate_dirs`: `REELQUICK_FFMPEG_DIR`, t
 
 **Workspace and Session (`workspace.py`).** One working folder per game under the work root holds `project.reelquick.json`, `strip/`, `proxy/index.m3u8` + `proxy.mp4`, `clips/` and `.cache/`. `Session` is the single open workspace the API edits, guarded by an RLock. Undo/redo keeps whole-project snapshots: every mutating endpoint in `server.py` calls `session.remember("<label>")` *before* changing the project. Undo never takes away a clip's `rendered` record.
 
+**Undo in the UI** is one order across two places. In/out marks live only in the window. `App.tsx` keeps its own stack: a `marks` entry for each mark change, and a `server` entry each time the server's `history.seq` (a counter that only `remember()` moves) goes up. Undo pops that stack, restoring marks locally or calling `/api/undo`. Every mark change must go through `setMarks`, or it falls out of the undo order.
+
+**Preferences** (keyboard bindings now, app defaults later) live in `<work root>/prefs.json` via `prefs.py` and `PUT /api/prefs`, not in browser storage. The app window starts in private mode on a new port every launch, so `localStorage` does not survive a restart. Actions and default keys are in `app/src/shortcuts.ts`; tooltips use `tip()` so they show the live binding.
+
 **Jobs.** Long work (filmstrip, proxy, render) runs through `jobs.JobManager` as `fn(progress_cb, cancel_event)`. `run_ffmpeg` turns ffmpeg's `out_time` into a 0–1 fraction and kills the process when the event is set.
 
 **Color.** Outputs that keep HDR (ProRes, stream copy) keep the BT.2020/HLG tags. SDR outputs (proxy, share MP4, thumbnails, stills) go through the broadcast LUT from `engine/luts/*.cube` (git-ignored, licensed) or `REELQUICK_SDR_LUT`. The LUT works on narrow-range 10-bit code values, so `cubelut.py` bakes a full-range copy into `luts/.baked/` on first use. Without a LUT, a BT.2408-style chain is used. On ffmpeg 9, `-color_primaries`/`-color_trc` output options are ignored, so color tags are stamped on frames with a `setparams` filter (engine and test fixture alike).

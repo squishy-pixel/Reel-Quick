@@ -61,7 +61,7 @@ def test_game_clips_and_naming(client):
 
 
 def test_undo_redo_walks_project_edits(client):
-    assert client.get("/api/state").json()["history"] == {"undo": None, "redo": None}
+    assert client.get("/api/state").json()["history"] == {"undo": None, "redo": None, "seq": 0}
     assert client.post("/api/undo").status_code == 409
     cid = client.post("/api/clips", json={"in_frame": 100, "out_frame": 160, "desc": "one"}).json()["clip"]["id"]
     client.patch(f"/api/clips/{cid}", json={"in_frame": 90})
@@ -72,7 +72,8 @@ def test_undo_redo_walks_project_edits(client):
     assert r["label"] == "add marker" and r["project"]["markers"] == []
     r = client.post("/api/undo").json()
     assert r["label"] == "clip in point" and r["project"]["clips"][0]["in_frame"] == 100
-    assert r["history"] == {"undo": "add clip", "redo": "clip in point"}
+    # seq counts edits only: three so far, and undo did not move it, so the UI can tell edits from undos
+    assert r["history"] == {"undo": "add clip", "redo": "clip in point", "seq": 3}
     r = client.post("/api/redo").json()
     assert r["project"]["clips"][0]["in_frame"] == 90
     r = client.post("/api/undo").json(); r = client.post("/api/undo").json()
@@ -258,3 +259,14 @@ def test_one_off_export_takes_its_own_formats_and_quality(client):
     assert client.post("/api/jobs/render", json={"formats": ["gif"]}).status_code == 400
     assert client.post("/api/jobs/render", json={"formats": []}).status_code == 400
     assert client.post("/api/jobs/render", json={"mp4_quality": "huge"}).status_code == 400
+
+
+def test_prefs_persist_in_the_work_root(client):
+    assert client.get("/api/state").json()["prefs"] == {"shortcuts": {}}
+    r = client.put("/api/prefs", json={"shortcuts": {"clear_marks": "Ctrl+Shift+X"}, "nonsense": 1})
+    assert r.json() == {"shortcuts": {"clear_marks": "Ctrl+Shift+X"}}
+    root = Path(client.get("/api/state").json()["work_root"])
+    assert (root / "prefs.json").is_file()
+    assert client.get("/api/state").json()["prefs"]["shortcuts"] == {"clear_marks": "Ctrl+Shift+X"}
+    # a bad type is ignored rather than stored
+    assert client.put("/api/prefs", json={"shortcuts": ["x"]}).json()["shortcuts"] == {"clear_marks": "Ctrl+Shift+X"}

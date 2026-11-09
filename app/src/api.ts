@@ -24,9 +24,11 @@ export interface Job {
 export interface Workspace { source: string; source_online: boolean; root: string; project_path: string; has_filmstrip: boolean; has_proxy: boolean; proxy_url: string | null; proxy_complete: boolean; proxy_building: boolean; proxy_available_seconds: number; proxy_start_offset: number; clips_dir: string }
 export interface Recent { root: string; project_path: string; source: string; source_online: boolean; game: Game; clips: number; has_proxy: boolean; has_filmstrip: boolean; modified: number }
 export type Vocab = { shells: string[]; cameras: string[]; engines: string[]; segments: string[] };
+export type Prefs = { shortcuts: Record<string, string> };
 export interface AppState {
   version: string; workspace: Workspace | null; project: Project | null; jobs: Job[]; work_root: string; vocab: Vocab;
-  history: { undo: string | null; redo: string | null };
+  prefs: Prefs;
+  history: { undo: string | null; redo: string | null; seq: number };
   engine: { ffmpeg: string; nvenc: boolean; lut: { name: string; range: string } | null };
 }
 export interface FilmstripIndex { interval_frames: number; width: number; count: number; frames: { i: number; frame: number; seconds: number; tc: string; file: string }[] }
@@ -48,6 +50,7 @@ export const api = {
   game: (g: Game) => call<AppState>("PUT", "/api/game", g),
   settings: (s: Partial<Settings>) => call<AppState>("PUT", "/api/settings", s),
   vocab: (v: Partial<Vocab>) => call<Vocab>("PUT", "/api/vocab", v),
+  prefs: (p: Partial<Prefs>) => call<Prefs>("PUT", "/api/prefs", p),
   addClip: (b: { in_frame: number; out_frame: number; shell?: string; desc?: string; camera?: string; engine?: string; formats?: string[] }) => call<{ clip: Clip; project: Project }>("POST", "/api/clips", b),
   patchClip: (id: string, b: Partial<Clip>) => call<{ clip: Clip; project: Project }>("PATCH", `/api/clips/${id}`, b),
   deleteClip: (id: string) => call<{ project: Project }>("DELETE", `/api/clips/${id}`),

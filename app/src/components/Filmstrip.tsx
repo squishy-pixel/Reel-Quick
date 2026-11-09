@@ -107,7 +107,7 @@ export function Filmstrip({ index, nbFrames, fps, frame, markers, clips, selecte
     for (const cl of clips) { g.fillStyle = cl.id === selectedId ? "#F4F5F5" : "#FEB404"; g.fillRect(x(cl.in_frame), h - 7, Math.max(2, x(cl.out_frame) - x(cl.in_frame)), 6); }
     if (selected) { g.fillStyle = "rgba(244,245,245,0.18)"; g.fillRect(x(selected.in_frame), 0, Math.max(2, x(selected.out_frame) - x(selected.in_frame)), h); }
     for (const m of timed) { g.fillStyle = m.source === "user" ? "#F4F5F5" : "#FEB404"; g.fillRect(x(m.frame!) - 0.5, 2, 1.5, h - 10); }
-    // still diamonds sit on the timeline's centre line so they read as belonging here, not to the strip above
+    // still diamonds sit on the timeline's centre line so they read as belonging here, not to the strip below
     for (const f of stills) { const cy = h / 2; g.fillStyle = "#F4F5F5"; g.beginPath(); g.moveTo(x(f), cy - 6); g.lineTo(x(f) + 6, cy); g.lineTo(x(f), cy + 6); g.lineTo(x(f) - 6, cy); g.closePath(); g.fill(); g.strokeStyle = "#000"; g.lineWidth = 1; g.stroke(); }
     if (inPoint !== null) { g.fillStyle = "rgba(254,180,4,0.35)"; g.fillRect(x(inPoint), 0, Math.max(2, x(outPoint ?? frame) - x(inPoint)), h); }
     g.fillStyle = "#F4F5F5"; g.fillRect(x(frame) - 1.5, 0, 3, h);
@@ -133,6 +133,12 @@ export function Filmstrip({ index, nbFrames, fps, frame, markers, clips, selecte
 
   return (
     <div>
+      {/* The timeline sits on top, where editors put the viewer's scrub bar; the thumbnails hang below it. */}
+      <div className="timeline" onMouseDown={onDown}
+        onMouseMove={(e) => { const at = frameAt(e, e.currentTarget); setHover({ x: e.nativeEvent.offsetX, ...at }); }} onMouseLeave={() => setHover(null)}>
+        <canvas ref={overview} />
+        {hover && <div className="hovertc" style={{ left: Math.min(Math.max(hover.x, 50), (overview.current?.clientWidth ?? 200) - 50) }}><Tc value={tcOf(hover.frame)} />{hover.label && <span className="dim"> {hover.label}</span>}</div>}
+      </div>
       <div className="strip" ref={ref} style={{ height: stripH }}>
         <div className="track" style={{ width: total }}>
           {visible.map((t) => (
@@ -160,11 +166,6 @@ export function Filmstrip({ index, nbFrames, fps, frame, markers, clips, selecte
           {inPoint !== null && <div className="inout" style={{ left: px(inPoint), width: Math.max(2, px((outPoint ?? frame)) - px(inPoint)), height: thumbH }} />}
           <div className="playhead" style={{ left: px(frame) - 1 }} />
         </div>
-      </div>
-      <div className="timeline" onMouseDown={onDown}
-        onMouseMove={(e) => { const at = frameAt(e, e.currentTarget); setHover({ x: e.nativeEvent.offsetX, ...at }); }} onMouseLeave={() => setHover(null)}>
-        <canvas ref={overview} />
-        {hover && <div className="hovertc" style={{ left: Math.min(Math.max(hover.x, 50), (overview.current?.clientWidth ?? 200) - 50) }}><Tc value={tcOf(hover.frame)} />{hover.label && <span className="dim"> {hover.label}</span>}</div>}
       </div>
       <div className="legend">
         <span><i className="sw mk" />log marker</span>

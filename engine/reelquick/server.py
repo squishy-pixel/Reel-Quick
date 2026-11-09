@@ -28,6 +28,7 @@ from .proxy import ProxySettings, build_proxy
 from .render import MP4_QUALITIES, OutputFormat, render_clip
 from .stills import grab_still
 from .timecode import frames_to_tc
+from .prefs import load_prefs, save_prefs
 from .vocab import load_vocab, save_vocab
 from .workspace import Session, default_work_root, recent_projects
 
@@ -203,7 +204,8 @@ def create_app(session: Session | None = None) -> FastAPI:
             "jobs": [j.to_dict() for j in jobs.list()],
             "work_root": str(session.work_root),
             "vocab": load_vocab(session.work_root),
-            "history": session.history() if w else {"undo": None, "redo": None},
+            "prefs": load_prefs(session.work_root),
+            "history": session.history() if w else {"undo": None, "redo": None, "seq": session.seq},
             "engine": {
                 "ffmpeg": caps.version.split()[0],
                 "nvenc": encoder_works("h264_nvenc") if caps.nvenc else False,
@@ -224,6 +226,10 @@ def create_app(session: Session | None = None) -> FastAPI:
     @app.put("/api/vocab")
     def put_vocab(body: dict):
         return save_vocab(session.work_root, body)
+
+    @app.put("/api/prefs")
+    def put_prefs(body: dict):
+        return save_prefs(session.work_root, body)
 
     @app.get("/api/fonts")
     def fonts():

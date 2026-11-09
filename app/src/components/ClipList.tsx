@@ -55,11 +55,12 @@ function QuickExportBar({ onExport, onClose }: { onExport: (o: QuickExport) => v
   );
 }
 
-export function ClipList({ clips, info, selected, onSelect, onPatch, onDelete, onSeek, onExport, renderRows }: {
+export function ClipList({ clips, info, selected, onSelect, onPatch, onDelete, onSeek, onExport, renderRows, keys }: {
   clips: Clip[]; info: MediaInfo; selected: string | null; onSelect: (id: string) => void;
   onPatch: (id: string, patch: Partial<Clip>) => void; onDelete: (id: string) => void; onSeek: (frame: number) => void;
   onExport: (id: string, o: QuickExport) => void;
   renderRows: Record<string, { status: string; progress: number }>;
+  keys: { in: string; out: string; add: string };    // the user's current bindings, for the empty-list hint
 }) {
   const [exporting, setExporting] = useState<string | null>(null);
   const rate = { num: info.rate_num, den: info.rate_den };
@@ -69,7 +70,7 @@ export function ClipList({ clips, info, selected, onSelect, onPatch, onDelete, o
     <div className="clips">
       {clips.length === 0 && (
         <div className="hatch dim" style={{ padding: "26px 16px", textAlign: "center", lineHeight: 1.8 }}>
-          No clips yet.<br />Mark <span className="kbd">I</span> and <span className="kbd">O</span>, then <span className="kbd">Enter</span> adds the range.
+          No clips yet.<br />Mark <span className="kbd">{keys.in}</span> and <span className="kbd">{keys.out}</span>, then <span className="kbd">{keys.add}</span> adds the range.
         </div>
       )}
       {clips.map((c, i) => {
