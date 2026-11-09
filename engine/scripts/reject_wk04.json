@@ -1,0 +1,1796 @@
+{
+ "recording": "NFL_250925_WK04_SEA_ARI_PRIME_GAME-NET-RETURN-RX802.mp4",
+ "game": "2025WK04-SEAvsARI",
+ "about": "WK04 patch-matcher false alarms (frames not in the clip list), labelled by eye. Frame numbers count decoded frames from the first. 'not_ours' entries are the reject reference set; 'flat' entries check the picture test; 'ours' are real but uncut shells and booth shots; 'unclear' is left out.",
+ "frames": [
+  {
+   "frame": 3645,
+   "span": [
+    0,
+    7290
+   ],
+   "kind": "not_ours",
+   "note": "Stay Tuned bumper",
+   "matched_as": [
+    "Match-Up",
+    "Playoff Picture",
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 13638,
+   "span": [
+    13507,
+    13770
+   ],
+   "kind": "not_ours",
+   "note": "Tonight bumper",
+   "matched_as": [
+    "Match-Up"
+   ]
+  },
+  {
+   "frame": 34825,
+   "span": [
+    34820,
+    34830
+   ],
+   "kind": "unclear",
+   "note": "",
+   "matched_as": [
+    "NBA Promo"
+   ]
+  },
+  {
+   "frame": 35897,
+   "span": [
+    35885,
+    35910
+   ],
+   "kind": "unclear",
+   "note": "",
+   "matched_as": [
+    "NBA Promo"
+   ]
+  },
+  {
+   "frame": 38205,
+   "span": [
+    38160,
+    38250
+   ],
+   "kind": "not_ours",
+   "note": "NFL+ ad card",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 39866,
+   "span": [
+    39682,
+    40050
+   ],
+   "kind": "not_ours",
+   "note": "Sunday Ticket ad",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 48967,
+   "span": [
+    48795,
+    49140
+   ],
+   "kind": "not_ours",
+   "note": "Liberty Mutual card",
+   "matched_as": [
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 70930,
+   "span": [
+    70917,
+    70943
+   ],
+   "kind": "not_ours",
+   "note": "ad, live action",
+   "matched_as": [
+    "Kelce Close Up"
+   ]
+  },
+  {
+   "frame": 79473,
+   "span": [
+    79386,
+    79560
+   ],
+   "kind": "not_ours",
+   "note": "Novartis card",
+   "matched_as": [
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 80469,
+   "span": [
+    80389,
+    80550
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 101205,
+   "span": [
+    101160,
+    101250
+   ],
+   "kind": "footage",
+   "note": "",
+   "matched_as": [
+    "NBA Promo"
+   ]
+  },
+  {
+   "frame": 102589,
+   "span": [
+    102572,
+    102606
+   ],
+   "kind": "not_ours",
+   "note": "Prime logo bumper",
+   "matched_as": [
+    "Match-Up",
+    "Scenic Comp"
+   ]
+  },
+  {
+   "frame": 106287,
+   "span": [
+    106284,
+    106290
+   ],
+   "kind": "not_ours",
+   "note": "State Farm card",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 107055,
+   "span": [
+    107010,
+    107100
+   ],
+   "kind": "not_ours",
+   "note": "State Farm card",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 110655,
+   "span": [
+    110610,
+    110700
+   ],
+   "kind": "not_ours",
+   "note": "transition card",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 112558,
+   "span": [
+    112526,
+    112590
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 130590,
+   "span": [
+    130500,
+    130680
+   ],
+   "kind": "not_ours",
+   "note": "TNF Tonight Verizon bumper",
+   "matched_as": [
+    "Scenic Comp"
+   ]
+  },
+  {
+   "frame": 135855,
+   "span": [
+    135630,
+    136080
+   ],
+   "kind": "not_ours",
+   "note": "Sunday Ticket ad",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 139777,
+   "span": [
+    139623,
+    139931
+   ],
+   "kind": "unclear",
+   "note": "",
+   "matched_as": [
+    "NBA Promo",
+    "Prime Stories",
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 146457,
+   "span": [
+    146394,
+    146520
+   ],
+   "kind": "not_ours",
+   "note": "Game Access State Farm bumper",
+   "matched_as": [
+    "Match-Up"
+   ]
+  },
+  {
+   "frame": 154493,
+   "span": [
+    154457,
+    154530
+   ],
+   "kind": "unclear",
+   "note": "NBA promo: NBA Promo is a library shell (ours), so not a reject reference",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 168586,
+   "span": [
+    167883,
+    169290
+   ],
+   "kind": "ours",
+   "note": "Player List (starting offensive line)",
+   "matched_as": [
+    "NBA Promo",
+    "Player List"
+   ]
+  },
+  {
+   "frame": 182566,
+   "span": [
+    182520,
+    182613
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Match-Up",
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 182951,
+   "span": [
+    182933,
+    182970
+   ],
+   "kind": "not_ours",
+   "note": "Our Stars promo",
+   "matched_as": [
+    "EA Sports Madden"
+   ]
+  },
+  {
+   "frame": 183381,
+   "span": [
+    183343,
+    183420
+   ],
+   "kind": "not_ours",
+   "note": "Vikings-Steelers Dublin promo",
+   "matched_as": [
+    "NBA Promo"
+   ]
+  },
+  {
+   "frame": 190678,
+   "span": [
+    190647,
+    190710
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 191205,
+   "span": [
+    191160,
+    191250
+   ],
+   "kind": "not_ours",
+   "note": "TNF shield bumper",
+   "matched_as": [
+    "NBA Promo"
+   ]
+  },
+  {
+   "frame": 200331,
+   "span": [
+    200323,
+    200340
+   ],
+   "kind": "unclear",
+   "note": "",
+   "matched_as": [
+    "NBA Promo"
+   ]
+  },
+  {
+   "frame": 214200,
+   "span": [
+    213750,
+    214650
+   ],
+   "kind": "not_ours",
+   "note": "DraftKings ad",
+   "matched_as": [
+    "Match-Up"
+   ]
+  },
+  {
+   "frame": 217485,
+   "span": [
+    217440,
+    217530
+   ],
+   "kind": "not_ours",
+   "note": "DraftKings ad",
+   "matched_as": [
+    "Match-Up"
+   ]
+  },
+  {
+   "frame": 220217,
+   "span": [
+    220205,
+    220230
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 221205,
+   "span": [
+    221190,
+    221220
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 223008,
+   "span": [
+    222997,
+    223020
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 226981,
+   "span": [
+    226903,
+    227059
+   ],
+   "kind": "not_ours",
+   "note": "Kickoff wipe",
+   "matched_as": [
+    "Match-Up"
+   ]
+  },
+  {
+   "frame": 240030,
+   "span": [
+    239760,
+    240300
+   ],
+   "kind": "unclear",
+   "note": "",
+   "matched_as": [
+    "NBA Promo"
+   ]
+  },
+  {
+   "frame": 245510,
+   "span": [
+    245501,
+    245520
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 246560,
+   "span": [
+    246251,
+    246870
+   ],
+   "kind": "not_ours",
+   "note": "TNF logo bumper",
+   "matched_as": [
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 250738,
+   "span": [
+    250736,
+    250740
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 260775,
+   "span": [
+    260730,
+    260820
+   ],
+   "kind": "not_ours",
+   "note": "Thursday Night Kickoff Subway",
+   "matched_as": [
+    "Scenic Comp"
+   ]
+  },
+  {
+   "frame": 264747,
+   "span": [
+    264715,
+    264780
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 266379,
+   "span": [
+    266179,
+    266580
+   ],
+   "kind": "not_ours",
+   "note": "Sunday Ticket ad",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 270297,
+   "span": [
+    270235,
+    270360
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 270506,
+   "span": [
+    270472,
+    270540
+   ],
+   "kind": "not_ours",
+   "note": "packaging transition",
+   "matched_as": [
+    "Match-Up"
+   ]
+  },
+  {
+   "frame": 270991,
+   "span": [
+    270900,
+    271083
+   ],
+   "kind": "not_ours",
+   "note": "NFL shield bumper",
+   "matched_as": [
+    "Match-Up",
+    "Scenic Comp"
+   ]
+  },
+  {
+   "frame": 301586,
+   "span": [
+    301583,
+    301590
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 319142,
+   "span": [
+    318965,
+    319320
+   ],
+   "kind": "not_ours",
+   "note": "DraftKings ad",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 322880,
+   "span": [
+    322750,
+    323010
+   ],
+   "kind": "not_ours",
+   "note": "Liberty Mutual card",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 323994,
+   "span": [
+    323989,
+    324000
+   ],
+   "kind": "unclear",
+   "note": "",
+   "matched_as": [
+    "Match-Up"
+   ]
+  },
+  {
+   "frame": 324335,
+   "span": [
+    324311,
+    324360
+   ],
+   "kind": "not_ours",
+   "note": "Our Stars promo",
+   "matched_as": [
+    "EA Sports Madden"
+   ]
+  },
+  {
+   "frame": 324810,
+   "span": [
+    324721,
+    324900
+   ],
+   "kind": "not_ours",
+   "note": "Vikings-Steelers Dublin promo",
+   "matched_as": [
+    "NBA Promo",
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 336410,
+   "span": [
+    336221,
+    336600
+   ],
+   "kind": "not_ours",
+   "note": "film trailer",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 338265,
+   "span": [
+    338220,
+    338310
+   ],
+   "kind": "not_ours",
+   "note": "State Farm card",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 341999,
+   "span": [
+    341999,
+    342000
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 369090,
+   "span": [
+    368910,
+    369270
+   ],
+   "kind": "footage",
+   "note": "",
+   "matched_as": [
+    "Playoff Picture"
+   ]
+  },
+  {
+   "frame": 370378,
+   "span": [
+    370137,
+    370620
+   ],
+   "kind": "footage",
+   "note": "",
+   "matched_as": [
+    "NBA Promo",
+    "Playoff Picture",
+    "Score"
+   ]
+  },
+  {
+   "frame": 374355,
+   "span": [
+    374220,
+    374490
+   ],
+   "kind": "ours",
+   "note": "Booth",
+   "matched_as": [
+    "Booth"
+   ]
+  },
+  {
+   "frame": 392656,
+   "span": [
+    392642,
+    392670
+   ],
+   "kind": "unclear",
+   "note": "",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 396900,
+   "span": [
+    396810,
+    396990
+   ],
+   "kind": "not_ours",
+   "note": "Ebglyss card",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 398053,
+   "span": [
+    398036,
+    398070
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 412200,
+   "span": [
+    412110,
+    412290
+   ],
+   "kind": "ours",
+   "note": "Score (7-3 end of 1st)",
+   "matched_as": [
+    "Score"
+   ]
+  },
+  {
+   "frame": 412784,
+   "span": [
+    412771,
+    412797
+   ],
+   "kind": "not_ours",
+   "note": "ad, live action",
+   "matched_as": [
+    "Kelce Close Up"
+   ]
+  },
+  {
+   "frame": 415424,
+   "span": [
+    415409,
+    415440
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 415845,
+   "span": [
+    415800,
+    415890
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 421377,
+   "span": [
+    421374,
+    421380
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 442305,
+   "span": [
+    442260,
+    442350
+   ],
+   "kind": "footage",
+   "note": "",
+   "matched_as": [
+    "NBA Promo"
+   ]
+  },
+  {
+   "frame": 442710,
+   "span": [
+    442620,
+    442800
+   ],
+   "kind": "unclear",
+   "note": "",
+   "matched_as": [
+    "Schedules"
+   ]
+  },
+  {
+   "frame": 447238,
+   "span": [
+    447176,
+    447300
+   ],
+   "kind": "not_ours",
+   "note": "film trailer card",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 449144,
+   "span": [
+    449009,
+    449280
+   ],
+   "kind": "not_ours",
+   "note": "Prime Big Deal Days ad",
+   "matched_as": [
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 477923,
+   "span": [
+    477837,
+    478009
+   ],
+   "kind": "not_ours",
+   "note": "Schwab card",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 479755,
+   "span": [
+    479700,
+    479811
+   ],
+   "kind": "not_ours",
+   "note": "State Farm card",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 480791,
+   "span": [
+    480713,
+    480870
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 505338,
+   "span": [
+    505302,
+    505375
+   ],
+   "kind": "not_ours",
+   "note": "Novartis card",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 506341,
+   "span": [
+    506253,
+    506430
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 515805,
+   "span": [
+    515788,
+    515822
+   ],
+   "kind": "not_ours",
+   "note": "Prime logo bumper",
+   "matched_as": [
+    "Match-Up",
+    "Scenic Comp"
+   ]
+  },
+  {
+   "frame": 533800,
+   "span": [
+    533721,
+    533880
+   ],
+   "kind": "not_ours",
+   "note": "Little Caesars card",
+   "matched_as": [
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 557097,
+   "span": [
+    557094,
+    557100
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 558907,
+   "span": [
+    558824,
+    558990
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 576630,
+   "span": [
+    576270,
+    576990
+   ],
+   "kind": "ours",
+   "note": "Booth",
+   "matched_as": [
+    "Booth"
+   ]
+  },
+  {
+   "frame": 577305,
+   "span": [
+    577260,
+    577350
+   ],
+   "kind": "ours",
+   "note": "Booth",
+   "matched_as": [
+    "Booth"
+   ]
+  },
+  {
+   "frame": 577665,
+   "span": [
+    577620,
+    577710
+   ],
+   "kind": "ours",
+   "note": "Booth",
+   "matched_as": [
+    "Booth"
+   ]
+  },
+  {
+   "frame": 588491,
+   "span": [
+    588463,
+    588519
+   ],
+   "kind": "not_ours",
+   "note": "ad, live action",
+   "matched_as": [
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 588958,
+   "span": [
+    588957,
+    588960
+   ],
+   "kind": "not_ours",
+   "note": "ad, vertical video",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 591471,
+   "span": [
+    591462,
+    591480
+   ],
+   "kind": "unclear",
+   "note": "",
+   "matched_as": [
+    "NBA Promo"
+   ]
+  },
+  {
+   "frame": 591789,
+   "span": [
+    591739,
+    591840
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Match-Up",
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 592197,
+   "span": [
+    592105,
+    592290
+   ],
+   "kind": "not_ours",
+   "note": "State Farm Halftime Show title",
+   "matched_as": [
+    "Match-Up"
+   ]
+  },
+  {
+   "frame": 594585,
+   "span": [
+    594540,
+    594630
+   ],
+   "kind": "unclear",
+   "note": "",
+   "matched_as": [
+    "Match-Up"
+   ]
+  },
+  {
+   "frame": 604341,
+   "span": [
+    604332,
+    604350
+   ],
+   "kind": "not_ours",
+   "note": "State Farm card",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 606015,
+   "span": [
+    605970,
+    606060
+   ],
+   "kind": "not_ours",
+   "note": "State Farm card",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 607926,
+   "span": [
+    607902,
+    607950
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 617392,
+   "span": [
+    617385,
+    617400
+   ],
+   "kind": "unclear",
+   "note": "",
+   "matched_as": [
+    "Match-Up"
+   ]
+  },
+  {
+   "frame": 618795,
+   "span": [
+    618660,
+    618930
+   ],
+   "kind": "not_ours",
+   "note": "State Farm Halftime Show title",
+   "matched_as": [
+    "Match-Up"
+   ]
+  },
+  {
+   "frame": 620712,
+   "span": [
+    620695,
+    620730
+   ],
+   "kind": "not_ours",
+   "note": "FanDuel ad",
+   "matched_as": [
+    "Match-Up"
+   ]
+  },
+  {
+   "frame": 622593,
+   "span": [
+    622567,
+    622620
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 623433,
+   "span": [
+    623347,
+    623520
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 625367,
+   "span": [
+    625325,
+    625410
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 627885,
+   "span": [
+    627840,
+    627930
+   ],
+   "kind": "unclear",
+   "note": "",
+   "matched_as": [
+    "Match-Up"
+   ]
+  },
+  {
+   "frame": 630450,
+   "span": [
+    630180,
+    630720
+   ],
+   "kind": "footage",
+   "note": "",
+   "matched_as": [
+    "In The Know Classic",
+    "Score"
+   ]
+  },
+  {
+   "frame": 667147,
+   "span": [
+    667125,
+    667170
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 668122,
+   "span": [
+    668084,
+    668160
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 669195,
+   "span": [
+    669060,
+    669330
+   ],
+   "kind": "footage",
+   "note": "",
+   "matched_as": [
+    "Match-Up"
+   ]
+  },
+  {
+   "frame": 691854,
+   "span": [
+    691789,
+    691920
+   ],
+   "kind": "not_ours",
+   "note": "iPhone ad",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 696499,
+   "span": [
+    696399,
+    696600
+   ],
+   "kind": "not_ours",
+   "note": "It's on prime card",
+   "matched_as": [
+    "Match-Up",
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 714758,
+   "span": [
+    714737,
+    714780
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 715635,
+   "span": [
+    715500,
+    715770
+   ],
+   "kind": "unclear",
+   "note": "",
+   "matched_as": [
+    "Match-Up",
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 749412,
+   "span": [
+    749395,
+    749430
+   ],
+   "kind": "not_ours",
+   "note": "boxing promo",
+   "matched_as": [
+    "Playoff Picture"
+   ]
+  },
+  {
+   "frame": 751586,
+   "span": [
+    751493,
+    751680
+   ],
+   "kind": "not_ours",
+   "note": "Prime Big Deal Days ad",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 754278,
+   "span": [
+    754266,
+    754290
+   ],
+   "kind": "not_ours",
+   "note": "Spectrum card",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 756969,
+   "span": [
+    756949,
+    756990
+   ],
+   "kind": "not_ours",
+   "note": "ad, live action",
+   "matched_as": [
+    "Kelce Close Up"
+   ]
+  },
+  {
+   "frame": 757810,
+   "span": [
+    757710,
+    757911
+   ],
+   "kind": "not_ours",
+   "note": "CarMax card",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 798364,
+   "span": [
+    798339,
+    798390
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 803304,
+   "span": [
+    803269,
+    803340
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 806355,
+   "span": [
+    805860,
+    806850
+   ],
+   "kind": "ours",
+   "note": "Booth",
+   "matched_as": [
+    "Booth"
+   ]
+  },
+  {
+   "frame": 833103,
+   "span": [
+    832986,
+    833220
+   ],
+   "kind": "not_ours",
+   "note": "Schwab card",
+   "matched_as": [
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 834024,
+   "span": [
+    834019,
+    834030
+   ],
+   "kind": "not_ours",
+   "note": "It's on prime card",
+   "matched_as": [
+    "Match-Up"
+   ]
+  },
+  {
+   "frame": 882799,
+   "span": [
+    882789,
+    882810
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 884486,
+   "span": [
+    884453,
+    884520
+   ],
+   "kind": "not_ours",
+   "note": "NFL+ ad card",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 885420,
+   "span": [
+    885330,
+    885510
+   ],
+   "kind": "unclear",
+   "note": "",
+   "matched_as": [
+    "Match-Up"
+   ]
+  },
+  {
+   "frame": 905663,
+   "span": [
+    905657,
+    905670
+   ],
+   "kind": "footage",
+   "note": "",
+   "matched_as": [
+    "Takeover"
+   ]
+  },
+  {
+   "frame": 941985,
+   "span": [
+    941940,
+    942030
+   ],
+   "kind": "not_ours",
+   "note": "film trailer text",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 942300,
+   "span": [
+    942210,
+    942390
+   ],
+   "kind": "not_ours",
+   "note": "film trailer text",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 943965,
+   "span": [
+    943920,
+    944010
+   ],
+   "kind": "not_ours",
+   "note": "film trailer text",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 945974,
+   "span": [
+    945959,
+    945990
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 947160,
+   "span": [
+    947070,
+    947250
+   ],
+   "kind": "not_ours",
+   "note": "film trailer text",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 947811,
+   "span": [
+    947743,
+    947880
+   ],
+   "kind": "not_ours",
+   "note": "film trailer text",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 950760,
+   "span": [
+    950670,
+    950850
+   ],
+   "kind": "not_ours",
+   "note": "film trailer text",
+   "matched_as": [
+    "Match-Up"
+   ]
+  },
+  {
+   "frame": 951279,
+   "span": [
+    950988,
+    951570
+   ],
+   "kind": "not_ours",
+   "note": "Thursday wipe",
+   "matched_as": [
+    "Match-Up",
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 956745,
+   "span": [
+    956700,
+    956790
+   ],
+   "kind": "unclear",
+   "note": "",
+   "matched_as": [
+    "Match-Up"
+   ]
+  },
+  {
+   "frame": 973342,
+   "span": [
+    973253,
+    973431
+   ],
+   "kind": "not_ours",
+   "note": "2nd Quarter title",
+   "matched_as": [
+    "Match-Up"
+   ]
+  },
+  {
+   "frame": 974318,
+   "span": [
+    974229,
+    974407
+   ],
+   "kind": "not_ours",
+   "note": "4th Quarter title",
+   "matched_as": [
+    "Match-Up"
+   ]
+  },
+  {
+   "frame": 986435,
+   "span": [
+    986400,
+    986471
+   ],
+   "kind": "not_ours",
+   "note": "Prime logo bumper",
+   "matched_as": [
+    "Match-Up"
+   ]
+  },
+  {
+   "frame": 986940,
+   "span": [
+    986850,
+    987030
+   ],
+   "kind": "not_ours",
+   "note": "NFL shield bumper",
+   "matched_as": [
+    "Match-Up"
+   ]
+  },
+  {
+   "frame": 996445,
+   "span": [
+    996411,
+    996480
+   ],
+   "kind": "not_ours",
+   "note": "Spectrum card",
+   "matched_as": [
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 996930,
+   "span": [
+    996840,
+    997020
+   ],
+   "kind": "not_ours",
+   "note": "TNF Nightcap promo",
+   "matched_as": [
+    "Match-Up"
+   ]
+  },
+  {
+   "frame": 1039554,
+   "span": [
+    1039519,
+    1039590
+   ],
+   "kind": "not_ours",
+   "note": "Behr card",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 1043154,
+   "span": [
+    1043119,
+    1043190
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 1093351,
+   "span": [
+    1093292,
+    1093410
+   ],
+   "kind": "not_ours",
+   "note": "Schwab card",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 1097983,
+   "span": [
+    1097966,
+    1098000
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 1098958,
+   "span": [
+    1098926,
+    1098990
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 1111320,
+   "span": [
+    1111230,
+    1111410
+   ],
+   "kind": "not_ours",
+   "note": "Ebglyss card",
+   "matched_as": [
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 1116965,
+   "span": [
+    1116900,
+    1117031
+   ],
+   "kind": "flat",
+   "note": "",
+   "matched_as": [
+    "Match-Up",
+    "Scenic Comp",
+    "Scenic Droneshow"
+   ]
+  },
+  {
+   "frame": 1117521,
+   "span": [
+    1117513,
+    1117530
+   ],
+   "kind": "not_ours",
+   "note": "Our Stars promo",
+   "matched_as": [
+    "EA Sports Madden"
+   ]
+  },
+  {
+   "frame": 1118654,
+   "span": [
+    1118519,
+    1118790
+   ],
+   "kind": "not_ours",
+   "note": "Vikings-Steelers Dublin promo",
+   "matched_as": [
+    "NBA Promo"
+   ]
+  },
+  {
+   "frame": 1119600,
+   "span": [
+    1119510,
+    1119690
+   ],
+   "kind": "unclear",
+   "note": "",
+   "matched_as": [
+    "Match-Up"
+   ]
+  },
+  {
+   "frame": 1122710,
+   "span": [
+    1122671,
+    1122750
+   ],
+   "kind": "ours",
+   "note": "Player Card (Luis Gonzalez)",
+   "matched_as": [
+    "NBA Promo"
+   ]
+  }
+ ]
+}

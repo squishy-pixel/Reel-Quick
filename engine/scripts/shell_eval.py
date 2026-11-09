@@ -69,6 +69,10 @@ LOO_RECALL = 80                     # threshold: 80% of library frames are found
 # Camera categories rather than graphics: they run all game and only a few instances are cut, so a clip
 # list is not a complete answer key for them and their "false alarms" are mostly real but uncut shots.
 CAMERA = {"Booth", "Scenic Comp", "Scenic Droneshow", "On Field"}
+FLAT_T = 0.9                        # picture test: a frame is flat when this share of it sits within +-10 luma
+                                    # of its median (black frames, plain ad cards). Set on WK04's false alarms:
+                                    # catches all 37 black/flat ones, no real shell, 2 of 1420 library frames
+REJECT_KEEP = 99                    # reject gate: at most 1% of library shell frames look this much like "not ours"
 DEV = "cuda"
 
 
@@ -218,6 +222,8 @@ class Matcher:
         wts = torch.zeros(S, L, device=DEV)
         for s in range(S):
             rows = np.where(shell == s)[0]
+            if len(rows) == 0:
+                continue
             Ps = Pf[rows]
             total = Ps.sum(0)
             clips = clip[rows]
@@ -251,6 +257,34 @@ class Matcher:
             per_shell = m.unsqueeze(2).masked_fill(~self.onehot.unsqueeze(0), -1e4).amax(1)   # B,S
             out[name] = per_shell
         return out
+
+
+def flatness(frames: np.ndarray) -> np.ndarray:
+    """Share of each frame within +-10 luma levels of its median: ~1 for black frames and plain cards."""
+    out = []
+    for i in range(0, len(frames), 256):
+        f = frames[i:i + 256].astype(np.float32)
+        y = (0.2126 * f[..., 0] + 0.7152 * f[..., 1] + 0.0722 * f[..., 2]).reshape(len(f), -1)
+        out.append((np.abs(y - np.median(y, 1, keepdims=True)) <= 10).mean(1))
+    return np.concatenate(out) if out else np.zeros(0)
+
+
+@torch.no_grad()
+def reject_similarity(patch: torch.Tensor, rej_patch: torch.Tensor) -> torch.Tensor:
+    """Mean patch cosine, location by location, to the closest "not ours" reference frame."""
+    L = patch.shape[1]
+    return ((patch.flatten(1).float() @ rej_patch.flatten(1).float().T) / L).amax(1)
+
+
+def reject_frames(manifest: str, recordings: str, cache: Path) -> np.ndarray:
+    m = json.loads(Path(manifest).read_text(encoding="utf-8"))
+    f = cache / f"reject-{Path(manifest).stem}.npz"
+    if f.exists():
+        return np.load(f)["frames"]
+    rec = str(Path(recordings) / m["recording"])
+    frames = frames_at(rec, first_pts(rec), [x["frame"] for x in m["frames"] if x["kind"] == "not_ours"])
+    np.savez(f, frames=frames)
+    return frames
 
 
 def robust_z(bg: np.ndarray):
@@ -388,6 +422,12 @@ def cmd_score(a):
         {"test_game": a.test_game, "shells": shells, "ref_shell": rs.tolist(), "key": key}, indent=1), encoding="utf-8")
     emb = Embedder()
     games = torch.from_numpy(np.unique(rgame, return_inverse=True)[1]).to(DEV)
+    gate = bool(a.reject_manifest)
+    if gate:
+        jf = reject_frames(a.reject_manifest, a.recordings, cache)
+        rflat, bflat = flatness(rf), flatness(bf)
+        keep = rflat < FLAT_T
+        print(f"  reject set: {len(jf)} frames; flat library frames dropped: {int((~keep).sum())}", flush=True)
     for v in a.variants:
         out = cache / f"scores-{a.test_game}-{v}.npz"
         if out.exists():
@@ -399,6 +439,22 @@ def cmd_score(a):
         sub = torch.randperm(len(bp), generator=torch.Generator().manual_seed(0))[:600].to(DEV)
         m = Matcher(rc, rp, rs, rclip, bp[sub], shells)
         res = defaultdict(list)
+        if gate:
+            kt = torch.from_numpy(keep).to(DEV)
+            mg = Matcher(rc[kt], rp[kt], rs[keep], rclip[keep], bp[sub], shells)
+            jc, jp = embed_all(emb, jf, v)
+            kgames = games[kt]
+            for i in range(0, len(bc), 128):
+                for name, sc in mg.scores(bc[i:i + 128], bp[i:i + 128]).items():
+                    res[f"gbg_{name}"].append(sc.cpu().numpy())
+                res["bg_rsim"].append(reject_similarity(bp[i:i + 128], jp).cpu().numpy())
+            krc, krp = rc[kt], rp[kt]
+            for i in range(0, len(krc), 128):
+                excl = kgames[i:i + 128, None] == kgames[None, :]
+                for name, sc in mg.scores(krc[i:i + 128], krp[i:i + 128], exclude=excl).items():
+                    res[f"gloo_{name}"].append(sc.cpu().numpy())
+            for i in range(0, len(rc), 128):
+                res["ref_rsim"].append(reject_similarity(rp[i:i + 128], jp).cpu().numpy())
         for i in range(0, len(bc), 128):
             for name, sc in m.scores(bc[i:i + 128], bp[i:i + 128]).items():
                 res[f"bg_{name}"].append(sc.cpu().numpy())
@@ -412,10 +468,18 @@ def cmd_score(a):
             c, p = embed_all(emb, fr, v)
             for name, sc in m.scores(c, p).items():
                 res[f"test_{name}"].append(sc.cpu().numpy())
+            if gate:
+                for name, sc in mg.scores(c, p).items():
+                    res[f"gtest_{name}"].append(sc.cpu().numpy())
+                res["test_rsim"].append(reject_similarity(p, jp).cpu().numpy())
+                res["test_flat"].append(flatness(fr))
             res["test_idx"].append(idx)
-        np.savez(out, weights=m.weights.cpu().numpy(), **{k: np.concatenate(x) for k, x in res.items()})
+        extra = {"ref_flat": rflat, "ref_keep": keep, "bg_flat": bflat} if gate else {}
+        np.savez(out, weights=m.weights.cpu().numpy(), **extra, **{k: np.concatenate(x) for k, x in res.items()})
         print(f"[{v}] saved {out.name}", flush=True)
         del rc, rp, bc, bp, m
+        if gate:
+            del mg, jc, jp, krc, krp
         torch.cuda.empty_cache()
 
 
@@ -425,6 +489,47 @@ def detect(raw: np.ndarray, med: np.ndarray, mad: np.ndarray):
     lab = raw.argmax(1)
     z = (raw[np.arange(len(raw)), lab] - med[lab]) / mad[lab]
     return lab, z
+
+
+def evaluate(bg, loo, lrs, test, drop, tidx, truth, key, shells, sidx):
+    """Labels, spans and counts for one configuration. drop: samples the reject gate removes (or None)."""
+    med, mad = robust_z(bg)
+    # Threshold fixed before the test game is looked at: the strength at which LOO_RECALL of the
+    # library's frames are found, labelled right, in the other games. Not from background footage:
+    # booth and drone shots run all game but only a few are cut, so "background" is full of them.
+    llab, lz = detect(loo, med, mad)
+    thr = float(np.percentile(lz[llab == lrs], 100 - LOO_RECALL))
+    lab, tz = detect(test, med, mad)
+    if drop is not None:
+        tz = np.where(drop, -np.inf, tz)
+    labels = np.where(tz > thr, lab, -1)
+    ps = spans(labels, tidx, MIN_SPAN)
+    zs = (test - med) / mad
+    if drop is not None:
+        zs = np.where(drop[:, None], -np.inf, zs)
+    aps = {s: average_precision(zs[:, sidx[s]], truth == sidx[s])
+           for s in sorted({k["shell"] for k in key}) if s in sidx}
+    in_key = truth >= 0
+    res = {
+        "threshold_z": thr,
+        "loo_top1": float((loo.argmax(1) == lrs).mean()),
+        "sample_label_acc": float((lab[in_key] == truth[in_key]).mean()),
+        "frame_ap": aps,
+        "mean_ap": float(np.nanmean(list(aps.values()))),
+        "events": event_metrics(ps, key, shells),
+        "spans": len(ps),
+        "flagged_samples": int((labels >= 0).sum()),
+        "pred_spans": [[shells[l], s, e] for l, s, e in ps],
+        "sweep": [],
+    }
+    # the same counts over a range of thresholds, to show the trade-off rather than one point on it
+    for q in (99, 95, 90, 80, 70, 50):
+        t_ = float(np.percentile(lz[llab == lrs], 100 - q))
+        ev_ = event_metrics(spans(np.where(tz > t_, lab, -1), tidx, MIN_SPAN), key, shells)
+        res["sweep"].append({"loo_recall": q, "threshold_z": t_, **{
+            g: {x: sum(e[x] for s, e in ev_.items() if (s in CAMERA) == (g == "camera"))
+                for x in ("found", "missed", "false_alarms")} for g in ("graphics", "camera")}})
+    return res
 
 
 def cmd_report(a):
@@ -442,48 +547,33 @@ def cmd_report(a):
             if k["shell"] in sidx:
                 truth[(tidx >= k["start"]) & (tidx <= k["end"])] = sidx[k["shell"]]
         vres = {}
-        for name in METHODS:
-            bg, loo, test = z_[f"bg_{name}"], z_[f"loo_{name}"], z_[f"test_{name}"]
-            med, mad = robust_z(bg)
-            # Threshold fixed before the test game is looked at: the strength at which LOO_RECALL of the
-            # library's frames are found, labelled right, in the other games. Not from background footage:
-            # booth and drone shots run all game but only a few are cut, so "background" is full of them.
-            llab, lz = detect(loo, med, mad)
-            thr = float(np.percentile(lz[llab == rs], 100 - LOO_RECALL))
-            lab, tz = detect(test, med, mad)
-            labels = np.where(tz > thr, lab, -1)
-            ps = spans(labels, tidx, MIN_SPAN)
-            zs = (test - med) / mad
-            aps = {s: average_precision(zs[:, sidx[s]], truth == sidx[s])
-                   for s in sorted({k["shell"] for k in key}) if s in sidx}
-            in_key = truth >= 0
-            vres[name] = {
-                "threshold_z": thr,
-                "loo_top1": float((loo.argmax(1) == rs).mean()),
-                "sample_label_acc": float((lab[in_key] == truth[in_key]).mean()),
-                "frame_ap": aps,
-                "mean_ap": float(np.nanmean(list(aps.values()))),
-                "any_shell_ap": average_precision(tz, in_key),
-                "events": event_metrics(ps, key, shells),
-                "spans": len(ps),
-                "flagged_samples": int((labels >= 0).sum()),
-                "pred_spans": [[shells[l], s, e] for l, s, e in ps],
-            }
-            # the same counts over a range of thresholds, to show the trade-off rather than one point on it
-            vres[name]["sweep"] = []
-            for q in (99, 95, 90, 80, 70, 50):
-                t_ = float(np.percentile(lz[llab == rs], 100 - q))
-                ev_ = event_metrics(spans(np.where(tz > t_, lab, -1), tidx, MIN_SPAN), key, shells)
-                vres[name]["sweep"].append({"loo_recall": q, "threshold_z": t_, **{
-                    g: {x: sum(e[x] for s, e in ev_.items() if (s in CAMERA) == (g == "camera"))
-                        for x in ("found", "missed", "false_alarms")} for g in ("graphics", "camera")}})
-            ev = vres[name]["events"]
-            for g in ("graphics", "camera"):
-                f_, m_, fa = (sum(e[x] for s, e in ev.items() if (s in CAMERA) == (g == "camera"))
+        configs = [(name, name, None) for name in METHODS]
+        if "test_rsim" in z_.files:
+            keep = z_["ref_keep"]
+            tau = float(np.percentile(z_["ref_rsim"][keep], REJECT_KEEP))
+            flat = z_["test_flat"] >= FLAT_T
+            rejected = flat | (z_["test_rsim"] > tau)
+            results.setdefault("gate", {})[v] = {
+                "reject_tau": tau, "flat_samples": int(flat.sum()), "rejected_samples": int(rejected.sum()),
+                "key_samples_rejected": int(rejected[truth >= 0].sum()), "key_samples": int((truth >= 0).sum()),
+                "bg_rejected_share": float(((z_["bg_flat"] >= FLAT_T) | (z_["bg_rsim"] > tau)).mean())}
+            for name in METHODS:
+                configs += [(f"{name}+flat", f"g:{name}", flat), (f"{name}+flat+reject", f"g:{name}", rejected)]
+        for label, src, drop in configs:
+            g = src.startswith("g:")
+            name = src[2:] if g else src
+            pre = "g" if g else ""
+            bg, loo, test = z_[f"{pre}bg_{name}"], z_[f"{pre}loo_{name}"], z_[f"{pre}test_{name}"]
+            lrs = rs[z_["ref_keep"]] if g else rs
+            vres[label] = evaluate(bg, loo, lrs, test, drop, tidx, truth, key, shells, sidx)
+            ev = vres[label]["events"]
+            for grp in ("graphics", "camera"):
+                f_, m_, fa = (sum(e[x] for s, e in ev.items() if (s in CAMERA) == (grp == "camera"))
                               for x in ("found", "missed", "false_alarms"))
-                print(f"{v:4s} {name:5s} {g:8s} found={f_} missed={m_} false-alarms={fa}", flush=True)
-            print(f"{v:4s} {name:5s} loo-top1={vres[name]['loo_top1']:.2f} label-acc={vres[name]['sample_label_acc']:.2f} "
-                  f"meanAP={vres[name]['mean_ap']:.2f} anyAP={vres[name]['any_shell_ap']:.2f} (thr z={thr:.1f})", flush=True)
+                print(f"{v:4s} {label:20s} {grp:8s} found={f_} missed={m_} false-alarms={fa}", flush=True)
+            print(f"{v:4s} {label:20s} loo-top1={vres[label]['loo_top1']:.2f} "
+                  f"label-acc={vres[label]['sample_label_acc']:.2f} "
+                  f"meanAP={vres[label]['mean_ap']:.2f} (thr z={vres[label]['threshold_z']:.1f})", flush=True)
         results["variants"][v] = vres
         results["samples"] = int(len(tidx))
     out = cache / f"eval-{a.test_game}.json"
@@ -555,6 +645,8 @@ def main():
     e.add_argument("--not-in-feed", nargs="*", default=[], help="test clips not cut from the recording")
     e.add_argument("--cache", required=True)
     e.add_argument("--variants", nargs="*", default=list(VARIANTS))
+    e.add_argument("--reject-manifest", help="reject set manifest (e.g. scripts/reject_wk04.json): adds the gate")
+    e.add_argument("--recordings", help="folder holding the manifest's recording")
     r = sub.add_parser("report")
     r.add_argument("--test-game", required=True)
     r.add_argument("--cache", required=True)

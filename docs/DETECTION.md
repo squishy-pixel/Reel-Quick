@@ -374,7 +374,127 @@ instance of a shell is matched against another, not to fix a colour shift.
    the game rather than the cut clips.
 
 Not tried yet: other feature models (CLIP, SigLIP), patch matching with
-small spatial shifts, a reject class, and a second test game.
+small spatial shifts. (The reject class and a second test game follow.)
+
+## Findings: reject class, tested on WK06
+
+Measured November 2026 with the same script (`score --reject-manifest`).
+Results are in `eval-2025WK06-PHIvsNYG.json` in the detection-eval folder.
+
+### The gate
+
+Before the shell vote, a sample is dropped when either test fires:
+
+- **Picture test (black and flat frames).** A frame is flat when 90% or more
+  of it sits within ±10 luma levels of its median. The cut-off was set on
+  WK04's false alarms:
+  - It catches all 37 black and flat frames, plus 30 of the 76 ad cards
+    and packaging frames (the plain ones).
+  - It catches none of the real shells, and 2 of 1420 library frames.
+  - Those 2 are black frames inside clips: `WK02 Drone_01` and
+    `WK11 Scenic_01_TNFLogo`. That explains Scenic Droneshow matching dark
+    frames: one of its references was black. The picture test now drops
+    flat frames from the references too.
+- **"Not ours" reference set.** 75 WK04 frames, labelled by eye from WK04's
+  144 false-alarm spans; the manifest is `engine/scripts/reject_wk04.json`.
+  - **What it holds:** network packaging (Stay Tuned, Tonight, TNF / Prime /
+    NFL logo bumpers, Kickoff, Thursday wipes, 2nd / 4th Quarter titles,
+    State Farm Halftime Show, TNF Nightcap); ad cards and ads (Sunday
+    Ticket, DraftKings, FanDuel, State Farm, Liberty Mutual, Novartis,
+    Spectrum, Schwab, Big Deal Days, film trailers, ...); and other shows'
+    promos (Dublin game, Our Stars, boxing).
+  - **How a frame is matched:** a sample is rejected when its mean patch
+    cosine (equalised luma, location by location) to the closest reject
+    frame passes 0.427. That cut-off was fixed beforehand so that only 1% of
+    library shell frames would be rejected (15 of 1408).
+- **Built from WK04 only**, so WK06 is unseen by the gate as well as by the
+  matcher. The WK06 references are every other game's clips, WK04's
+  included; WK05 is still the background game.
+
+### WK06 PHI–NYG answer key
+
+18 library clips, all on 00:00 timecode. 16 sit exactly at their timecode
+frame (42–52 dB). Two are not in the recording at all:
+`BaseballCard_01_00080315` and `PlayerList_01_00112199`. A keyframe search of
+the whole file finds nothing better than 17 dB (the control clip,
+`Booth_01`, is found exactly). Both are early pregame graphics and were left
+out of the key. That leaves 10 graphics clips and 6 camera clips: 5 Booth,
+1 Scenic Comp.
+
+### Results (patch matcher, equalised luma)
+
+| | Graphics found | Graphics false alarms | Camera found | Camera false alarms |
+|---|---|---|---|---|
+| no gate | 8 / 10 | 67 | 5 / 6 | 98 |
+| + picture test | 8 / 10 | 66 | 5 / 6 | 22 |
+| **+ picture test + reject set** | **8 / 10** | **36** | **5 / 6** | **6** |
+| whole-frame, no gate (for scale) | 8 / 10 | 101 | 5 / 6 | 244 |
+| whole-frame + gate | 8 / 10 | 67 | 5 / 6 | 152 |
+
+- **The gate costs nothing that was found.** It drops 686 of 17838 samples
+  (3.8%; 295 of them flat), but only 2 of the 224 samples inside cut clips:
+  one each in a Match-Up and a Who Ya Got clip, both still found.
+- **The picture test is what fixes the camera categories:** 98 → 22
+  (Scenic Comp 69 → 20, Scenic Droneshow 27 → 0). The reject set takes them
+  to 6 (Scenic Comp 20 → 4).
+- **The reject set halves the graphics false alarms:** 66 → 36. Match-Up
+  goes 30 → 9.
+
+Threshold trade-off with the gate (graphics found / false alarms; camera
+found / false alarms), by the leave-one-game-out recall the threshold is set
+at: 95% 8 / 63, 5 / 24; 90% 8 / 50, 5 / 8; **80% 8 / 36, 5 / 6**; 70% 8 / 30,
+5 / 2; 50% 7 / 22, 0 / 0. Without the gate, 80% gives 8 / 67, 5 / 98.
+
+**The misses are labels, not detections.**
+- **Both NBA Promo clips are detected** (strength z 10 and 13 against a
+  threshold of 5.4), but labelled **Promo**, a sibling shell with one
+  library clip. They count as missed, and their spans as two of the 36
+  false alarms.
+- **Scenic_02 (Scenic Comp) is genuinely weak:** its own shell peaks at
+  z 3.3.
+- The three promo shells (NBA Promo, Promo, Next Week Promo) confuse each
+  other, as Match-Up and Next Week Promo did on WK04.
+
+WK06's ungated false alarms (67) are about twice WK04's (34). WK06 has far
+more scenic aerials (New York skyline, Statue of Liberty, Empire State), and
+the matcher labels them as shells.
+
+### What is left after the gate
+
+All 42 remaining false-alarm spans on WK06, by eye:
+
+| What it is | Spans | Examples |
+|---|---|---|
+| Real shell, right label, just not cut | 8 | Eagles Secondary lineup (Player List), Eagles Defense stats, "NBA on Prime, Coming October 24", Black Friday Bears–Eagles promos, Steelers–Bengals promo, 2 booth shots with guests |
+| Real shell, wrong label | 7 | Eagles / TNF / Giants matchup graphic over aerials, 3rd-quarter score, Times Square NBA promo, Steelers–Bengals "Next Week" over Cincinnati |
+| Scenic shots | 11 | NYC skyline and night aerials, Statue of Liberty, Empire State, stadium aerials, two with a sponsor box (Depend, Subway) |
+| Player close-ups | 5 | labelled "Kelce Close Up" (a one-clip shell), and they are that kind of shot |
+| Plain footage | 6 | videoboard, sideline, celebrations |
+| Not ours, got through | 3 | State Farm Halftime tease, Saquon documentary promo, Prime card |
+| Unclear | 2 | TNF logo over the field, Eagles / Giants logo wipe |
+
+So after the gate, almost nothing on screen is someone else's work: 3 of
+42. 15 are our shells that were not cut, and 16 are scenic shots and
+close-ups that the shell vote has no category for.
+
+### What this means
+
+1. **Keep the gate.** It is cheap and lost nothing on an unseen game. The
+   picture test alone fixes the dark and flat-frame problem. The reject set
+   needs topping up as ads change week to week; packaging repeats, so it
+   carries over.
+2. **Give scenic shots and close-ups their own classes** rather than letting
+   them vote for a shell. Then the shell vote only has to say *which*
+   graphic it is. Scenic is already a category in "What gets detected".
+3. **Group look-alike shells before naming them.** Promo / NBA Promo / Next
+   Week Promo, and Match-Up / Next Week Promo, should be one candidate with
+   a suggested label. OCR (step 6) can then settle the name.
+4. **TJ to confirm what counts as ours.** Following the brief, the reject
+   set treats network packaging as not ours: quarter titles, Kickoff, Stay
+   Tuned, TNF / Prime / NFL bumpers, State Farm Halftime Show. If any of that
+   is Girraphic's, those entries come out of `reject_wk04.json` (`kind`
+   field) before the next run. One frame I had first marked "NBA promo" is
+   already out: NBA Promo is a library shell, so it is ours.
 
 ## Order of work
 
@@ -382,8 +502,10 @@ small spatial shifts, a reject class, and a second test game.
    Done: see Findings.
 2. ~~Fingerprint the library and one game; measure shell matching on the
    known game before anything is built into the app.~~ Done on WK04: see
-   Findings: shell matching. The next measuring step is a reject class for
-   black frames, packaging and ads, on a second game.
+   Findings: shell matching. ~~Reject class for black frames, packaging and
+   ads, on a second game.~~ Done on WK06: see Findings: reject class. Next
+   measuring step: scenic and close-up classes, and grouping look-alike
+   shells.
 3. Phase boundaries and the anthem window in the app (set by hand first),
    with `{phase}` in the naming pattern.
 4. Candidate markers in the app (a new marker source beside `log` and `user`),
