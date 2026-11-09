@@ -1,3 +1,4 @@
+import os
 import subprocess
 import threading
 import time
@@ -8,6 +9,10 @@ from reelquick.ffmpeg import FfmpegError, run_ffmpeg
 
 
 def _ffmpeg_count() -> int:
+    if os.name == "nt":                    # no pgrep on Windows
+        out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq ffmpeg.exe", "/FO", "CSV", "/NH"],
+                             capture_output=True, text=True).stdout
+        return sum(1 for line in out.splitlines() if line.lower().startswith('"ffmpeg.exe"'))
     out = subprocess.run(["pgrep", "-c", "-x", "ffmpeg"], capture_output=True, text=True).stdout.strip()
     return int(out or 0)
 

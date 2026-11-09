@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -39,7 +40,8 @@ def test_builtin_conversion_puts_reference_white_on_sdr_white():
 
 
 def test_identity_lut_round_trip_and_colon_in_path(tmp_path):
-    d = tmp_path / "with:colon"
+    # Windows forbids ':' in names, and its drive-letter colon already runs through the escaping here
+    d = tmp_path / ("with space" if os.name == "nt" else "with:colon")
     d.mkdir()
     cube = _identity_cube(d / "id.cube")
     results = lutcheck.check(str(cube))

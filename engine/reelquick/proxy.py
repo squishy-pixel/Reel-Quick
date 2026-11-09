@@ -189,7 +189,10 @@ def video_start_offset(path: Path) -> float:
     from .ffmpeg import run_ffprobe
     try:
         data = run_ffprobe(["-allowed_extensions", "ALL", "-select_streams", "v:0", "-show_entries",
-                            "stream=start_time", str(path)])
+                            "stream=start_time", str(path)],
+                           # a playlist without #EXT-X-ENDLIST is live to ffprobe, and some builds
+                           # wait on it for new segments; the status poll must never block on that
+                           timeout=10)
         st = (data.get("streams") or [{}])[0].get("start_time")
         return max(0.0, float(st)) if st not in (None, "N/A") else 0.0
     except Exception:

@@ -72,9 +72,10 @@ def _popen_kwargs() -> dict:
     return kw
 
 
-def run_ffprobe(args: Sequence[str]) -> dict:
+def run_ffprobe(args: Sequence[str], timeout: float | None = None) -> dict:
+    """timeout (seconds) kills ffprobe and raises subprocess.TimeoutExpired; None waits as long as it takes."""
     cmd = [ffprobe_bin(), "-v", "error", "-print_format", "json", *args]
-    proc = subprocess.run(cmd, capture_output=True, text=True, **_popen_kwargs())
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, **_popen_kwargs())
     if proc.returncode != 0:
         raise FfmpegError(cmd, proc.returncode, proc.stderr)
     return json.loads(proc.stdout or "{}")
