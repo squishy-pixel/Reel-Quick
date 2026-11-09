@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 
 import pytest
@@ -25,8 +26,10 @@ def _identity_cube(path: Path, n: int = 9) -> Path:
 
 
 def test_filter_path_escapes_windows_drive_and_quotes():
-    assert filter_path(r"D:\Dev\luts\NBC HLG.cube") == r"'D\:/Dev/luts/NBC HLG.cube'"
-    assert filter_path("/a/it's.cube") == r"'/a/it'\''s.cube'"
+    # two levels of escaping: option parser, then filter graph parser
+    assert filter_path(r"D:\Dev\luts\NBC HLG.cube") == r"D\\:/Dev/luts/NBC HLG.cube"
+    assert filter_path("/a/it's.cube") == r"/a/it\\\'s.cube"
+    assert filter_path("/a/b[1],c;d.cube") == r"/a/b\[1\]\,c\;d.cube"
 
 
 def test_builtin_conversion_puts_reference_white_on_sdr_white():
@@ -48,6 +51,21 @@ def test_identity_lut_round_trip_and_colon_in_path(tmp_path):
     # identity LUT leaves HLG code values alone in either convention: 75% -> 180
     assert abs(narrow.white - 180) < 2 and abs(full.white - 180) < 2
     assert lutcheck.recommend(results) in ("narrow", "full")
+
+
+@pytest.mark.parametrize("dirname", [
+    "with'quote",
+    pytest.param("it's:a [b],c;d", marks=pytest.mark.skipif(
+        sys.platform == "win32", reason="':' is not allowed in Windows file names")),
+])
+def test_identity_lut_round_trip_through_awkward_path(tmp_path, dirname):
+    d = tmp_path / dirname
+    d.mkdir()
+    cube = _identity_cube(d / "id.cube")
+    results = lutcheck.check(str(cube))
+    narrow = next(r for r in results if r.label == "lut narrow")
+    full = next(r for r in results if r.label == "lut full")
+    assert abs(narrow.white - 180) < 2 and abs(full.white - 180) < 2
 
 
 def test_sdr_filter_uses_lut_when_set(info, tmp_path):
