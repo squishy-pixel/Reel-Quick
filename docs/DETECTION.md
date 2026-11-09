@@ -109,19 +109,113 @@ answers are known:
 
 - **TB at DAL (2026)**: the tech's log is the answer key (`markers.py` reads it).
 - **Last season's full games**, at `G:\2025 TNF Game Reviews` on TJ's PC,
-  plus their cut clips in the library. The trailing number in
-  the clip names (`...HotAirBalloons00260425`) may be the source frame
-  number. Unverified: TJ is not sure. Check it first by comparing a clip's
-  frames with the recording at that frame. If it holds, every clip of that
-  game is placed to the frame for free. If not, find each clip by matching
-  its frames against the recording.
+  plus their cut clips in the library. The trailing number in the clip names
+  places each clip in its recording to the frame, once the recording's
+  timecode base is known: see Findings below.
 
 Report, for each category: segments found, segments missed, false alarms,
 and how far suggested in/out points land from the real ones.
 
+## Findings: last season's recordings
+
+Checked November 2026 on TJ's PC. The clips were cut in Resolve from these
+files, not from the original MXFs.
+
+### The files in `G:\2025 TNF Game Reviews`
+
+Sixteen reduced MP4 copies (6 to 12 GB each), not the original MXFs. All are
+progressive, constant 59.94 fps (60000/1001) with every frame present
+(frame count = duration × 59.94), BT.709 SDR, one stereo AAC track. **None
+carries a timecode**, not even a `tmcd` track; the only clock in them is the
+file's `creation_time`, shown below in Pacific time.
+
+| Game | Codec | Resolution | Bit rate | Duration | creation_time (PT) |
+|---|---|---|---|---|---|
+| WK02 WAS–GB | HEVC Main 10 | 1920×1080 | 5 Mb/s | 5:33:05 | 15:58:01 |
+| WK03 MIA–BUF | HEVC Main 10 | 1920×1080 | 5 Mb/s | 5:07:32 | 15:58:01 |
+| WK04 SEA–ARI | HEVC Main 10 | 1920×1080 | 5 Mb/s | 5:17:36 | 15:58:00 |
+| WK05 SF–LAR | HEVC Main 10 | 1920×1080 | 5 Mb/s | 5:37:59 | 15:58:00 |
+| WK06 PHI–NYG | HEVC Main 10 | 1920×1080 | 5 Mb/s | 5:24:00 | 15:58:01 |
+| WK07 PIT–CIN | HEVC Main 10 | 1920×1080 | 5 Mb/s | 5:27:32 | 15:57:44 |
+| WK08 MIN–LAC | HEVC Main 10 | 1920×1080 | 5 Mb/s | 5:38:08 | 15:40:01 |
+| WK09 BAL–MIA | H.264 High | 1280×720 | 3 Mb/s | 5:33:35 | 15:40:34 |
+| WK10 LV–DEN | H.264 High | 1280×720 | 3 Mb/s | 5:40:00 | 15:40:37 |
+| WK11 NYJ–NE | H.264 High | 1280×720 | 3 Mb/s | 5:24:49 | 15:40:43 |
+| WK12 BUF–HOU | H.264 High | 1280×720 | 3 Mb/s | 5:56:02 | 15:40:35 |
+| WK14 DAL–DET | H.264 High | 1280×720 | 2 Mb/s | 5:59:49 | 15:40:29 |
+| WK15 ATL–TB | H.264 High | 1280×720 | 2 Mb/s | 5:51:15 | 15:40:29 |
+| WK16 LAR–SEA | H.264 High | 1280×720 | 2 Mb/s | 6:15:32 | 15:40:43 |
+| WK17 DEN–KC | H.264 High | 1280×720 | 2 Mb/s | 5:04:23 | 16:10:32 |
+| WK19 GB–CHI | H.264 High | 1280×720 | 2 Mb/s | 5:37:14 | 16:10:36 |
+
+The HEVC files' first frame sits at 0.0167 s, the H.264 files' at 0. Frame
+numbers below count decoded frames from the first one.
+
+### The trailing number is the clip's source timecode, as a frame count
+
+The clips carry the timecode Resolve gave them, and the trailing number is
+that start timecode converted to a frame count at 59.94 (drop-frame aware
+when the timecode is drop-frame). `BaseballCard_01_00996938` starts at
+`04:36:55:38` = (4·3600 + 36·60 + 55)·60 + 38 = 996938;
+`BaseballCard_01_03534371` (WK09) starts at `16:22:45;07`, which is 3537907
+nominal frames less 3536 dropped. The rule holds for every library clip except:
+
+- WK17 DEN–KC (all 20 clips): timecode `00:00:00:00` and number `00000000`.
+  These can only be placed by matching pictures.
+- Three naming slips: `WK04 WhoYaGot_01_00952645` carries Standings_01's
+  number (its timecode is `00:53:03:51`); `WK05 Scenic_01_00491772` and
+  `WK15 Matchup_01_00319299` disagree with their timecodes.
+
+Whether the number is the recording's frame number then depends on where
+Resolve started that file's timecode. Two bases turned up:
+
+- **WK04 SEA–ARI: the number is the frame, offset 0.** Its clips' timecode
+  counts from `00:00:00:00`. Checked 5 clips (NextWeekPromo_02, Booth_01,
+  MatchUp_01_HotAirBalloons, Score_01, BaseballCard_02): four match the
+  recording exactly at the named frame, 47–51 dB PSNR, every other offset in
+  ±150 frames 10–25 dB worse. Most games' clips use this 00:00-based,
+  non-drop timecode (WK02–07, WK11, WK12, WK14–16, WKWC, and all but a few
+  clips of WK08 and WK09), so the number should be the frame there too; not
+  checked frame by frame outside WK04.
+- **WK10 LV–DEN: constant offset of 3380616 frames.** Its clips carry
+  drop-frame time-of-day timecode (16:53 to 20:22), and Resolve's base for
+  the file is `15:40:00;00` = 3380616 frames. Recording frame = number −
+  3380616. Found by searching the whole file for 6 clips (they landed 2220
+  frames, 37.04 s, after the creation_time guess), then checked frame by
+  frame on all 13 time-of-day clips: 12 peak exactly at offset 0, OnField_01
+  is a 0.1 dB tie between 0 and −1 on a nearly static shot.
+
+Drop-frame time-of-day timecode shows up only in WK10 (13 of 14 clips), WK13
+(all 20, and there is no WK13 recording) and a few clips of WK08 (1) and WK09
+(2). So the base can differ between clips of the same game, and has to be
+found once per base, not per game. creation_time gives it
+only to within a minute: WK10's real base is 37 s before its creation_time,
+and the round values (15:40, 16:10) suggest scheduled start times. A
+keyframe-only search of one recording (every 250 frames, about 80 s for a
+5.7 h file) finds a few clips and gives the base.
+
+### Surprises
+
+- **The clips are not graded like the recordings.** WK04 clips match their
+  recording almost exactly (~50 dB). WK10 clips sit at only 22–27 dB at the
+  right frame: same framing, same pixels, but different colour (the Broncos'
+  orange reads red in the recording). Fingerprints must tolerate a colour
+  shift between the library and the game.
+- **Not every library clip was cut from the feed.** WK04
+  `NextWeekPromo_02` is a rendered "Next Week" graphic; at its frame the
+  recording shows the studio, and nothing within ±150 frames matches. WK10
+  `RepurposedShell_01_00255654`, the one 00:00-style clip in a time-of-day
+  game, is not found at its number nor anywhere in the recording's keyframes.
+- **Recordings and library games do not line up one to one.** There is no
+  recording for WK13 CHI–PHI (20 clips). The recordings include WK19 GB–CHI,
+  while the library has WKWC DEN–CHI; check which game that is.
+- **Two kinds of copy.** WK02–08 are 1080p HEVC 10-bit, WK09 onward 720p
+  H.264 at 2–3 Mb/s; detection runs on whichever the game has.
+
 ## Order of work
 
-1. Verify the frame-number hypothesis on one of last season's full games.
+1. ~~Verify the frame-number hypothesis on one of last season's full games.~~
+   Done: see Findings.
 2. Fingerprint the library and one game; measure shell matching on the
    known game before anything is built into the app.
 3. Phase boundaries and the anthem window in the app (set by hand first),
@@ -139,6 +233,8 @@ and how far suggested in/out points land from the real ones.
   sequence, e.g. `261022_WK08-NEvCHI_07_Pre_MatchUp_HotAirBalloons` and
   `261022_WK08-NEvCHI_08_Game_Booth`, with the phase spelled `Pre`, `Game`,
   `Half`, `Post`. TJ confirmed this placement.
-- Does `G:\2025 TNF Game Reviews` hold the original MXFs or reduced copies? If
-  reduced, check they keep every frame at 59.94 and start where the original
-  recording did, or frame numbers will not line up.
+- ~~Does `G:\2025 TNF Game Reviews` hold the original MXFs or reduced
+  copies?~~ Reduced copies, every frame kept at 59.94, and the clips were cut
+  from them, so the frame numbers line up (see Findings).
+- Which game is the WKWC DEN–CHI library folder, given the WK19 GB–CHI
+  recording?
