@@ -225,12 +225,165 @@ keyframe-only search of one recording (every 250 frames, about 80 s for a
 - **Two kinds of copy.** WK02–08 are 1080p HEVC 10-bit, WK09 onward 720p
   H.264 at 2–3 Mb/s; detection runs on whichever the game has.
 
+## Findings: shell matching on WK04 (step 2)
+
+Measured November 2026 on TJ's PC (RTX 5090 Laptop) with
+`engine/scripts/shell_eval.py`; its docstring has the commands. Caches and
+full results (`eval-2025WK04-SEAvsARI.json`, `colour.json`) are in
+`F:\_AI-Resources\App-Reel-Quick\Work\detection-eval`.
+
+### Setup
+
+- **Test game: WK04 SEA–ARI, unseen.** All 16 WK04 clips are left out of the
+  reference set. The answer key is 15 of them, placed by their timecode
+  (offset 0 for WK04). NextWeekPromo_02 is left out because it is not in the
+  feed. WhoYaGot_01 is placed by its timecode, since its name carries the
+  wrong number (checked: 50 dB at that frame).
+- **References:** 5 frames (20–80% through, skipping handles) from each of the
+  other 284 library clips: 1420 frames, 26 shells.
+- **Samples:** every keyframe of the recording, 17308 frames, about one per
+  1.1 s. A keyframe-only decode of the 5.3 h file takes about 4 minutes. A
+  detection is a run of at least 2 samples with one label.
+- **Background:** 3595 WK05 keyframes from outside WK05's clips. They are
+  used to standardise each shell's scores and to weight the patch matcher.
+- **Features:** DINOv2-base (pretrained, no training) on 448×252 frames. Two
+  matchers on the same features:
+  - **whole:** cosine of the frame's CLS embedding, best reference per shell.
+  - **patch:** cosine at each of the 18×32 patch locations. Each location is
+    weighted per shell by how consistently that shell looks there across its
+    clips (leaving each clip out), minus how much background footage already
+    looks like it there. So the weight sits on the graphic, not on the grass
+    or drone shot behind it.
+- **Colour treatments:** `rgb`; `gray` (BT.709 luma); `eq` (luma with
+  per-frame histogram equalisation).
+- **Label:** the shell of the best-scoring reference. **Threshold:** fixed
+  before WK04 is scored, at the score where 80% of library frames are found
+  (correctly labelled) in the other games, leave-one-game-out.
+
+### Results
+
+Booth, Scenic Comp, Scenic Droneshow and On Field are counted apart as
+*camera categories*: they are shots, not graphics, and the clip list only
+holds the few that were cut.
+
+| Matcher | Colour | Graphics found | Graphics false alarms | Booth found | Camera false alarms | Label right, LOO | Label right, WK04 clips |
+|---|---|---|---|---|---|---|---|
+| whole | rgb | 9 / 11 | 182 | 4 / 4 | 94 | 73% | 80% |
+| whole | gray | 9 / 11 | 144 | 4 / 4 | 97 | 74% | 78% |
+| whole | eq | 9 / 11 | 124 | 4 / 4 | 98 | 73% | 77% |
+| patch | rgb | 10 / 11 | 66 | 4 / 4 | 72 | 81% | 88% |
+| patch | gray | 10 / 11 | 52 | 4 / 4 | 77 | 81% | 88% |
+| **patch** | **eq** | **10 / 11** | **34** | **4 / 4** | 89 | 81% | 86% |
+
+"Label right, LOO" is the share of library frames whose best match in the
+*other* games is their own shell. "Label right, WK04 clips" is the same on
+the WK04 samples inside cut clips.
+
+**The one graphics miss is Special_01_BirdFight.** "Special" has no other
+clip in the library, so it cannot be found by matching. Every findable shell
+in WK04 is found by the patch matcher at the fixed threshold.
+
+Per shell, patch + eq (found / missed, false alarms by the clip list):
+
+| Shell | Found | Missed | False alarms |
+|---|---|---|---|
+| Booth | 4 | 0 | 5 |
+| In The Know Classic | 1 | 0 | 1 |
+| Match-Up | 1 | 0 | 14 |
+| Next Week Promo | 1 | 0 | 0 |
+| Player Card | 2 | 0 | 0 |
+| Prime Stories | 1 | 0 | 1 |
+| Repurposed Shell | 1 | 0 | 0 |
+| Score | 1 | 0 | 3 |
+| Special | 0 | 1 | 0 (no reference) |
+| Standings | 1 | 0 | 0 |
+| Who Ya Got | 1 | 0 | 0 |
+| Shells not in WK04's clips | | | Scenic Comp 51, Scenic Droneshow 33, NBA Promo 8, Kelce Close Up 3, Playoff Picture 2, others 1 each |
+
+Threshold trade-off for patch + eq (graphics found / false alarms), by the
+leave-one-game-out recall the threshold is set at: 99% 10 / 543, 95% 10 /
+95, 90% 10 / 58, **80% 10 / 34**, 70% 10 / 22, 50% 9 / 10. Whole-frame
++ eq never finds more than 9. From the 95% setting down, it has 1.8 to 5
+times the false alarms (95%: 9 / 168, 80%: 9 / 124, 50%: 7 / 50).
+
+### What the false alarms are
+
+"False alarm" here means "not in the clip list". I looked at a sample of 30
+of each kind by eye.
+
+- **Graphics, patch + eq (34):**
+  - 2 are uncut instances of the right shell: a "Seahawks Starting Offensive
+    Line" Player List and a "7–3 End of 1st Quarter" Score.
+  - 5 are real shells with the wrong label: the "49ers vs Rams, Next
+    Thursday" Next Week Promo three times, labelled Match-Up; a Luis
+    Gonzalez card (Player Card); a SEA–TNF–ARI logo graphic.
+  - 12 are graphics that are not library shells: Stay Tuned, Halftime and
+    State Farm Halftime Show titles, Post Game, Kickoff, feature-story
+    titles, promos for other games, ads.
+  - 11 are plain footage: stadium wides, game action, city aerials.
+- **Graphics, patch + rgb (66):** the same picture, with more Prime / TNF /
+  NFL logo bumpers and network packaging.
+- **Camera categories:** almost none is a real uncut scenic or booth shot
+  (1 booth in each sample of 30). They are black frames, and the plain
+  end cards of ads (Novartis, Prime, Wingstop, Subway, Behr, ...). The
+  single dark Scenic Droneshow clip makes any dark frame look like it; `eq`
+  moves the same frames to Scenic Comp.
+
+### Colour
+
+Per TJ's note, the library will never be colour-accurate. The question is
+whether features still match across that. For every WK04 and WK10 clip I
+compared 3 clip frames with the exact recording frames they were cut from
+(45 and 39 pairs), against 400 other moments of the same recording. WK10's
+colour shift is the visible one.
+
+| Game | Colour | whole cos | patch cos | true frame ranked first |
+|---|---|---|---|---|
+| WK04 (no shift) | rgb / gray / eq | 1.00 / 1.00 / 1.00 | 1.00 / 1.00 / 1.00 | 100% |
+| WK10 (shifted) | rgb / gray / eq | 0.99 / 0.99 / 0.99 | 0.96 / 0.96 / 0.96 | 100% |
+
+The colour shift costs almost nothing: every clip frame still picks out its
+own recording frame, by a wider margin on WK10 than on WK04. Luma and
+equalisation do not change that. Where `eq` helps is the WK04 test above:
+it halves graphics false alarms against `rgb`, with the same finds.
+Equalising seems to play down team colours and backgrounds when one
+instance of a shell is matched against another, not to fix a colour shift.
+
+### What this means
+
+1. **Use the patch matcher on equalised luma.** It finds every findable
+   shell in an unseen game with about 34 graphics false alarms over a 5.3 h
+   show (fewer than one every 9 minutes). Whole-frame matching is clearly
+   worse.
+2. **Add a reject class before the shell vote.** Most false alarms are
+   frames that are not ours at all: black frames, flat ad cards, network
+   packaging, ads, promos. Black and flat frames can be cut with a simple
+   picture test. Packaging and ads need a reference set of their own
+   ("not ours"). That set is the same one the NBC / other-contributor
+   categories need, so it serves both.
+3. **Shells with one or two clips are fragile.** Scenic Droneshow (1 clip)
+   causes 33–62 false alarms alone; Special cannot be found at all. Either
+   hold such shells back until they have 3 or more clips, or require a
+   stricter threshold for them. Every confirmed clip adds to this (step 5,
+   feedback).
+4. **The label is right less often than the detection.** Next Week Promo
+   and Match-Up confuse each other (similar layout with two team logos).
+   OCR (step 6) or a second, region-specific pass would separate them.
+5. **The clip list is a fair answer key for graphics, not for camera
+   shots.** For Booth and Scenic, scoring needs a hand-labelled sample of
+   the game rather than the cut clips.
+
+Not tried yet: other feature models (CLIP, SigLIP), patch matching with
+small spatial shifts, a reject class, and a second test game.
+
 ## Order of work
 
 1. ~~Verify the frame-number hypothesis on one of last season's full games.~~
    Done: see Findings.
-2. Fingerprint the library and one game; measure shell matching on the
-   known game before anything is built into the app.
+2. ~~Fingerprint the library and one game; measure shell matching on the
+   known game before anything is built into the app.~~ Done on WK04: see
+   Findings: shell matching. The next measuring step is a reject class for
+   black frames, packaging and ads, on a second game.
 3. Phase boundaries and the anthem window in the app (set by hand first),
    with `{phase}` in the naming pattern.
 4. Candidate markers in the app (a new marker source beside `log` and `user`),
