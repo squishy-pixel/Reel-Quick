@@ -112,8 +112,8 @@ class FilmstripBody(BaseModel):
 
 
 class ProxyBody(BaseModel):
-    height: int = 720
-    bitrate: str = "8M"
+    height: int = 1080
+    bitrate: str | None = None       # None: scaled to the height (proxy.default_bitrate)
     jobs: int = 1
 
 

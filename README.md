@@ -18,7 +18,7 @@ audio layout as the real feed:
 - `probe` reads codec, GOP structure, HDR tags, drop-frame time-of-day timecode, audio layout
 - `markers` maps the log CSV (Time, Type, Shell, Description) onto the file by time of day
 - `filmstrip` extracts a thumbnail every N seconds for a visual sweep of the whole show
-- `proxy` renders a browser-friendly SDR MP4 of the whole program (GPU encode when available)
+- `proxy` renders a browser-friendly SDR MP4 of the whole program at 1080p, the copy kept in the archive (GPU encode when available)
 - `cut` renders one clip in any mix of stream copy, ProRes 422 HLG, and share MP4, frame accurate, with handles, plus a reference still
 - `still` saves any single frame as a named PNG, JPEG or TIFF, tone-mapped to SDR by default
 - `init` and `render` manage a project file with the clip list and batch render it
@@ -136,10 +136,13 @@ ProRes on prores_videotoolbox; the software encoders are the fallback.
 **Proxy speed on a Mac.** The HLG to SDR conversion through the LUT is the
 cost, not the decode or the encode: on an M2 Max the 4:2:2 10-bit decode runs
 at 12x realtime but the LUT chain at 1080p runs at 2.6x (about 2 h 20 for a
-six-hour game) and at 720p at 4.2x (about 85 min). The proxy is therefore 720p
-by default (the downscale happens inside the first zscale pass, before the
-LUT); pick 1080p in the Scan panel or with `--height 1080` when the proxy must
-double as a render source. `reelquick proxy ... --jobs 3` cuts the time
+six-hour game) and at 720p at 4.2x (about 85 min). The proxy is 1080p by
+default anyway, because it is not only a proxy: it is the SDR copy of the
+whole game that goes to the long-term archive. 720p and 960x540 are there in
+the Scan panel or with `--height 720` / `--height 540` when speed matters more
+(the downscale happens inside the first zscale pass, before the LUT). The peak
+bitrate scales with the size so quality holds: 18 Mb/s at 1080p, 8 at 720p,
+5 at 540p, or set it with `--bitrate`. `reelquick proxy ... --jobs 3` cuts the time
 further by encoding three stretches at once, at the cost of the playlist
 growing in order while it runs. libplacebo cannot help on macOS: ffmpeg only
 drives it through Vulkan, which has no device there.

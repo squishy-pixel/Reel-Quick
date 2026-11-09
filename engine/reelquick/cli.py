@@ -249,15 +249,16 @@ def filmstrip(src: str, out_dir: str, interval: float, width: int, workers: int,
 @main.command()
 @click.argument("src", type=click.Path(exists=True, dir_okay=False))
 @click.argument("out", type=click.Path(dir_okay=False))
-@click.option("--height", default=720, show_default=True, help="Proxy height; 1080 costs about 1.7x the time.")
-@click.option("--bitrate", default="8M", show_default=True)
+@click.option("--height", default=1080, show_default=True,
+              help="Proxy height: 1080 (native, the archive copy), 720 (~1.7x faster) or 540 (960x540).")
+@click.option("--bitrate", default=None, help="Peak bitrate, e.g. 18M. Default scales with height: 18M at 1080, 8M at 720, 5M at 540.")
 @click.option("--hlg", is_flag=True, help="Keep HDR instead of tone-mapping to SDR.")
 @click.option("--hevc", is_flag=True, help="HEVC instead of H.264 (smaller, plays in fewer places).")
 @click.option("--audio", default=None, help="Source tracks, 1-based, e.g. 1,2")
 @click.option("--cpu", is_flag=True, help="Encode on the CPU instead of NVENC.")
 @click.option("--hwdecode", is_flag=True, help="Decode on the GPU (CUDA). Measured slower than CPU decode on this footage.")
 @click.option("--jobs", default=1, show_default=True, help="Encode this many segments at once, then join them.")
-def proxy(src: str, out: str, height: int, bitrate: str, hlg: bool, hevc: bool, audio: str | None, cpu: bool,
+def proxy(src: str, out: str, height: int, bitrate: str | None, hlg: bool, hevc: bool, audio: str | None, cpu: bool,
           hwdecode: bool, jobs: int) -> None:
     """Render a browser-friendly MP4 of the whole program."""
     info = probe(src)

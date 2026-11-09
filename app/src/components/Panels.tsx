@@ -20,7 +20,7 @@ export function JobsPanel({ state, onFilmstrip, onProxy, onCancel, onAudioTracks
   const latest = (kind: string) => [...state.jobs].reverse().find((j) => j.kind === kind);
   const ws = state.workspace!;
   const duration = state.project!.info.duration;
-  const [height, setHeight] = useState(720);
+  const [height, setHeight] = useState(1080);
   const confirmThen = (kind: string, rebuild: boolean, extra: string, go: () => void) => {
     if (!rebuild) { go(); return; }
     if (confirm(`Rebuild the ${kind}? About ${estimate(kind, duration)} for this recording.\n${extra}`)) go();
@@ -52,7 +52,7 @@ export function JobsPanel({ state, onFilmstrip, onProxy, onCancel, onAudioTracks
       <Row name="Filmstrip" job={fs} ready={ws.has_filmstrip} readyText={`ready · rebuild ≈ ${estimate("filmstrip", duration)}`}
         actions={<button className="btn small" title={`About ${estimate("filmstrip", duration)}`} onClick={() => confirmThen("filmstrip", ws.has_filmstrip, "Thumbnails are replaced as it goes; stopping keeps what is done.", () => onFilmstrip(ws.has_filmstrip))}>{ws.has_filmstrip ? "Rebuild" : `Build ≈ ${estimate("filmstrip", duration)}`}</button>} />
       <Row name="Proxy" job={px} ready={ws.has_proxy} readyText={ws.proxy_complete ? (ws.proxy_building ? "ready · the old one plays until the new one is finished" : `ready · rebuild ≈ ${estimate("proxy", duration)}`) : `${clockText(ws.proxy_available_seconds)} playable so far`} actions={<>
-        <select className="text" style={{ padding: "2px 4px", fontSize: 10 }} value={height} onChange={(e) => setHeight(Number(e.target.value))}><option value={720}>720p</option><option value={1080}>1080p · ~1.7x longer</option></select>
+        <select className="text" style={{ padding: "2px 4px", fontSize: 10 }} value={height} onChange={(e) => setHeight(Number(e.target.value))}><option value={1080}>1080p · archive</option><option value={720}>720p · ~1.7x faster</option><option value={540}>960x540 · fastest</option></select>
         <button className="btn small" title={`About ${estimate("proxy", duration)}`} onClick={() => confirmThen("proxy", ws.has_proxy, "The current proxy stays in place until the new one has finished.", () => onProxy(height))}>{ws.has_proxy ? "Rebuild" : `Build ≈ ${estimate("proxy", duration)}`}</button></>} />
       <div className="jobrow">
         <span className="name">Audio</span>

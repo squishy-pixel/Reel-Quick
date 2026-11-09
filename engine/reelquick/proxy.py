@@ -13,6 +13,7 @@ is encoded to AAC once, in the join step, which reads only the segments.
 
 from __future__ import annotations
 
+import math
 import os
 import tempfile
 import threading
@@ -27,10 +28,17 @@ from .probe import MediaInfo
 from .timecode import frames_to_seconds
 
 
+def default_bitrate(height: int) -> str:
+    """Peak bitrate holding the same bits per pixel at every size: 8 Mb/s at 720p, 18 at 1080p, 5 at 540p."""
+    return f"{max(2, math.ceil(8 * (height / 720) ** 2))}M"
+
+
 @dataclass
 class ProxySettings:
-    height: int = 720                # the colour conversion is CPU-bound and scales with pixels: 720p is ~1.7x faster
-    bitrate: str = "8M"
+    # 1080 is native for the TNF feed and is the copy kept in the archive. 720 (~1.7x faster: the colour
+    # conversion is CPU-bound and scales with pixels) and 540 (960x540) are there for speed.
+    height: int = 1080
+    bitrate: str | None = None       # None: default_bitrate(height)
     sdr: bool = True
     hevc: bool = False          # HEVC halves the size but plays in fewer places
     audio_tracks: tuple[int, ...] | None = None
@@ -41,6 +49,11 @@ class ProxySettings:
     hls: bool = True                 # write a segmented playlist the browser can play while it grows
     hls_segment_seconds: float = 4.0
     also_mp4: bool = True            # keep a single reference MP4 next to it (remuxed, no second encode)
+
+
+    def __post_init__(self) -> None:
+        if not self.bitrate:
+            self.bitrate = default_bitrate(self.height)
 
 
 def pick_encoder(settings: ProxySettings) -> tuple[str, list[str]]:
