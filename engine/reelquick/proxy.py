@@ -150,16 +150,55 @@ def hls_playlist_for(mp4_path: Path) -> Path:
 def remux_hls_to_mp4(playlist: Path, out_path: Path, on_progress: ProgressFn | None = None,
                      cancel: threading.Event | None = None, duration: float | None = None) -> Path:
     """The reference MP4: same packets as the playlist, timestamps pulled back so video starts at zero
-    (the MP4 muxer then hides the AAC priming in an edit list, as a directly written MP4 would)."""
+    (the MP4 muxer then hides the AAC priming in an edit list, as a directly written MP4 would).
+
+    ffmpeg already rebases a stream copy to the input's start time, the earliest stream's first
+    timestamp, so only the video's lead over that start is left to remove. Builds differ in where
+    that start lands: ffmpeg 6.1's playlist starts audio at 0 and video ~0.021 s in, so the video is
+    pulled back by 0.021; ffmpeg 9 starts both at 0.021 and the rebase alone is enough. Shifting a
+    second time there makes the muxer write the shift into the edit lists, which hides the first
+    two video frames from every decoder although their packets are present."""
     tmp = out_path.with_name(out_path.stem + ".partial" + out_path.suffix)
-    off = video_start_offset(playlist)
+    container_start, video_start = _start_times(playlist)
+    off = video_start - container_start
     args = ["-allowed_extensions", "ALL", "-i", str(playlist)]
-    if off > 0:
+    if off > 0.0005:
         args += ["-output_ts_offset", f"-{off:.6f}"]
     args += ["-map", "0", "-c", "copy", "-movflags", "+faststart", str(tmp)]
     run_ffmpeg(args, duration=duration, on_progress=on_progress, cancel=cancel)
+    want, got = _video_packet_count(playlist), _shown_video_frames(tmp)
+    if got != want:
+        tmp.unlink(missing_ok=True)
+        raise FfmpegError(args, -1, f"reference MP4 shows {got} video frames, the playlist has {want}")
     tmp.replace(out_path)
     return out_path
+
+
+def _start_times(path: Path) -> tuple[float, float]:
+    """(container start, first video timestamp) in seconds."""
+    from .ffmpeg import run_ffprobe
+    data = run_ffprobe(["-allowed_extensions", "ALL", "-select_streams", "v:0", "-show_entries",
+                        "format=start_time:stream=start_time", str(path)], timeout=60)
+
+    def secs(v) -> float:
+        return float(v) if v not in (None, "N/A") else 0.0
+    return (secs((data.get("format") or {}).get("start_time")),
+            secs((data.get("streams") or [{}])[0].get("start_time")))
+
+
+def _video_packet_count(path: Path) -> int:
+    from .ffmpeg import run_ffprobe
+    data = run_ffprobe(["-allowed_extensions", "ALL", "-count_packets", "-select_streams", "v:0",
+                        "-show_entries", "stream=nb_read_packets", str(path)])
+    return int((data.get("streams") or [{}])[0].get("nb_read_packets") or 0)
+
+
+def _shown_video_frames(path: Path) -> int:
+    """Video frames a decoder will output, edit lists applied. The demuxer flags packets an edit
+    list hides as discarded (D); counting the rest matches a full decode without the decode."""
+    from .ffmpeg import run_ffprobe
+    data = run_ffprobe(["-select_streams", "v:0", "-show_entries", "packet=flags", str(path)])
+    return sum(1 for p in data.get("packets") or [] if "D" not in (p.get("flags") or ""))
 
 
 def remux_mp4_to_hls(mp4_path: Path, playlist: Path, settings: ProxySettings, on_progress: ProgressFn | None = None,
