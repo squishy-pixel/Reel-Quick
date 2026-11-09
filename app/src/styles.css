@@ -206,3 +206,4 @@ input.text:focus, select.text:focus { outline: none; border-color: var(--yellow)
 .recentrow .g { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .recentrow .ok { color: var(--green); }
 .recentrow .offline { margin: 0; }
+.quickexport { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--off-black); font-size: 11px; }

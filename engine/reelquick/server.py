@@ -25,7 +25,7 @@ from .naming import GameInfo, build_name
 from .probe import probe
 from .project import ClipEntry, Settings, StillEntry
 from .proxy import ProxySettings, build_proxy
-from .render import OutputFormat, render_clip
+from .render import MP4_QUALITIES, OutputFormat, render_clip
 from .stills import grab_still
 from .timecode import frames_to_tc
 from .vocab import load_vocab, save_vocab
@@ -122,6 +122,9 @@ class RenderBody(BaseModel):
     overwrite: bool = False
     stills: bool = True
     from_proxy: bool = False        # cut from the proxy when the original is not available
+    # A one-off export: these formats and this MP4 quality for this run only; the clips keep their own.
+    formats: list[str] | None = None
+    mp4_quality: str | None = None
 
 
 # ---- helpers ------------------------------------------------------------------
@@ -644,6 +647,16 @@ def create_app(session: Session | None = None) -> FastAPI:
         clips = [c for c in project.clips if body.clip_ids is None or c.id in body.clip_ids]
         if not clips:
             raise HTTPException(400, "nothing to render")
+        if body.formats is not None:
+            if not body.formats or any(f not in {x.value for x in OutputFormat} for f in body.formats):
+                raise HTTPException(400, "formats must be one or more of copy, prores, mp4")
+        if body.mp4_quality is not None and body.mp4_quality not in MP4_QUALITIES:
+            raise HTTPException(400, f"mp4_quality must be one of {', '.join(MP4_QUALITIES)}")
+        quality = body.mp4_quality or project.settings.mp4_quality
+
+        def formats_of(c: ClipEntry) -> list[str]:
+            return list(dict.fromkeys(body.formats)) if body.formats is not None else c.formats
+
         if w.recheck_source():
             read_info, origin = project.info, "source"
         elif body.from_proxy and w.has_proxy():
@@ -655,7 +668,7 @@ def create_app(session: Session | None = None) -> FastAPI:
 
         def work_of(c: ClipEntry) -> float:
             n = (c.out_frame - c.in_frame) + (c.head_seconds + c.tail_seconds) * fps
-            return sum(weights.get(f, 1.0) * n for f in c.formats) + 2.0
+            return sum(weights.get(f, 1.0) * n for f in formats_of(c)) + 2.0
 
         total_work = sum(work_of(c) for c in clips)
         out_dir = w.clips_dir
@@ -671,7 +684,8 @@ def create_app(session: Session | None = None) -> FastAPI:
                 row = rows[c.id]
                 row["status"] = "running"
                 weight = work_of(c)
-                fmt_count = len(c.formats) or 1
+                fmts = formats_of(c)
+                fmt_count = len(fmts) or 1
 
                 def fmt_progress(frac, _d, _i=[0]):
                     row["progress"] = (_i[0] + frac) / fmt_count
@@ -680,9 +694,9 @@ def create_app(session: Session | None = None) -> FastAPI:
 
                 try:
                     outputs: dict = {}
-                    for i, fmt in enumerate(c.formats):
-                        spec = project.clip_spec(c, fmt)
-                        spec.name = project.output_name(c, fmt)
+                    for i, fmt in enumerate(fmts):
+                        spec = project.clip_spec(c, fmt, mp4_quality=quality)
+                        spec.name = project.output_name(c, fmt, also=fmts, mp4_quality=quality)
                         if origin == "proxy":
                             spec.name += "_fromproxy"
                             spec.audio_tracks = None                # the proxy carries one stereo track already
@@ -694,7 +708,8 @@ def create_app(session: Session | None = None) -> FastAPI:
                                                cancel=cancel, overwrite=body.overwrite)
                         except FileExistsError as e:
                             path = Path(str(e))
-                        outputs[fmt] = str(path)
+                        # a Slack or High MP4 sits beside the review one, under its own key
+                        outputs[fmt if fmt != "mp4" or quality == "review" else f"mp4_{quality}"] = str(path)
                     if body.stills:
                         if origin == "proxy":
                             frames = [c.representative_frame] + [f for f in c.extra_stills if f != c.representative_frame]

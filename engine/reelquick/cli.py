@@ -19,7 +19,7 @@ from .naming import GameInfo, build_name
 from .probe import probe
 from .project import Project
 from .proxy import ProxySettings, build_proxy
-from .render import ClipSpec, OutputFormat, render_clip
+from .render import MP4_QUALITIES, ClipSpec, OutputFormat, render_clip
 from .stills import FORMATS as STILL_FORMATS, grab_still
 from .timecode import frames_to_tc, parse_time_of_day, tc_to_frames
 
@@ -290,8 +290,11 @@ def proxy(src: str, out: str, height: int, bitrate: str | None, hlg: bool, hevc:
 @click.option("--audio", default=None, help="Source tracks, 1-based, e.g. 1,2")
 @click.option("--prores-profile", type=click.Choice(["proxy", "lt", "standard", "hq"]), default="standard", show_default=True)
 @click.option("--mp4-hdr", is_flag=True, help="Keep HLG in the MP4 instead of tone-mapping to SDR.")
+@click.option("--quality", type=click.Choice(MP4_QUALITIES), default="review", show_default=True,
+              help="MP4 quality: slack (720p, about 5 MB per 10 s), review, or high. Non-review files get _slack / _high.")
 @click.option("--overwrite", is_flag=True)
-def cut(src, out_dir, in_, out_, name, fmts, still, still_at, head, tail, audio, prores_profile, mp4_hdr, overwrite) -> None:
+def cut(src, out_dir, in_, out_, name, fmts, still, still_at, head, tail, audio, prores_profile, mp4_hdr, quality,
+        overwrite) -> None:
     """Render one clip in one or more formats, plus a reference still."""
     info = probe(src)
     fps = float(info.rate.fps)
@@ -299,10 +302,12 @@ def cut(src, out_dir, in_, out_, name, fmts, still, still_at, head, tail, audio,
     fmts = list(dict.fromkeys(fmts))
     for fmt in fmts:
         out_name = name + ("_src" if fmt == "copy" and "prores" in fmts else "")
+        if fmt == "mp4" and quality != "review":
+            out_name += f"_{quality}"
         spec = ClipSpec(
             in_frame=in_frame, out_frame=out_frame, name=out_name, fmt=OutputFormat(fmt),
             head_frames=round(head * fps), tail_frames=round(tail * fps),
-            audio_tracks=_tracks(audio), prores_profile=prores_profile, mp4_sdr=not mp4_hdr,
+            audio_tracks=_tracks(audio), prores_profile=prores_profile, mp4_sdr=not mp4_hdr, mp4_quality=quality,
         )
         bar = _Bar(f"{out_name} [{fmt}]")
         t0 = time.time()

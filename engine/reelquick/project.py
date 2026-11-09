@@ -84,6 +84,7 @@ class Settings:
     prores_profile: str = "standard"
     mp4_sdr: bool = True
     mp4_height: int | None = None
+    mp4_quality: str = "review"        # slack | review | high (render.MP4_QUALITIES)
     copy_container: str = "mov"
     still_format: str = "png"          # png | jpg | tiff
     still_hdr: bool = False
@@ -153,16 +154,22 @@ class Project:
         self.stills.append(still)
         return still
 
-    def output_name(self, clip: ClipEntry, fmt: str) -> str:
-        """Clip name for one output. Formats that would share an extension get a suffix."""
-        exts = {f: output_extension(self.clip_spec(clip, f)) for f in clip.formats}
+    def output_name(self, clip: ClipEntry, fmt: str, also: list[str] | None = None,
+                    mp4_quality: str | None = None) -> str:
+        """Clip name for one output. Formats that would share an extension get a suffix, judged over the
+        clip's own formats plus any asked for this time (`also`), so a one-off export names its file the
+        way a full render would. An MP4 at other than review quality is marked: _slack, _high."""
+        exts = {f: output_extension(self.clip_spec(clip, f)) for f in {*clip.formats, *(also or []), fmt}}
         mine = exts[fmt]
         clash = [f for f, e in exts.items() if e == mine and f != fmt]
         if clash and fmt == "copy":
             return clip.name + "_src"
+        quality = mp4_quality or self.settings.mp4_quality
+        if fmt == "mp4" and quality != "review":
+            return f"{clip.name}_{quality}"
         return clip.name
 
-    def clip_spec(self, clip: ClipEntry, fmt: str | None = None) -> ClipSpec:
+    def clip_spec(self, clip: ClipEntry, fmt: str | None = None, mp4_quality: str | None = None) -> ClipSpec:
         fps = float(self.info.rate.fps)
         fmt = fmt or clip.formats[0]
         return ClipSpec(
@@ -178,6 +185,7 @@ class Project:
             prores_profile=self.settings.prores_profile,
             mp4_sdr=self.settings.mp4_sdr,
             mp4_height=self.settings.mp4_height,
+            mp4_quality=mp4_quality or self.settings.mp4_quality,
             copy_container=self.settings.copy_container,
         )
 

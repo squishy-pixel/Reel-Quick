@@ -12,7 +12,7 @@ export interface Clip {
 export interface Still { id: string; frame: number; name: string; rendered: string | null }
 export interface Game { date: string; week: string; away: string; home: string }
 export interface Settings {
-  audio_tracks: number[]; surround_tracks: number[]; surround_in_mov: boolean; surround_in_mp4: boolean; prores_profile: string; mp4_sdr: boolean; mp4_height: number | null; copy_container: string;
+  audio_tracks: number[]; surround_tracks: number[]; surround_in_mov: boolean; surround_in_mp4: boolean; prores_profile: string; mp4_sdr: boolean; mp4_height: number | null; mp4_quality: string; copy_container: string;
   still_format: string; still_hdr: boolean; default_formats: string[]; name_pattern: string;
   default_head_seconds: number; default_tail_seconds: number; log_offset_seconds: number; output_dir: string;
 }
@@ -63,7 +63,8 @@ export const api = {
   jobs: () => call<Job[]>("GET", "/api/jobs"),
   startFilmstrip: (b: { interval?: number; width?: number; force?: boolean }) => call<Job>("POST", "/api/jobs/filmstrip", b),
   startProxy: (b: { height?: number; bitrate?: string }) => call<Job>("POST", "/api/jobs/proxy", b),
-  startRender: (b: { clip_ids?: string[]; overwrite?: boolean; from_proxy?: boolean }) => call<Job>("POST", "/api/jobs/render", b),
+  startRender: (b: { clip_ids?: string[]; overwrite?: boolean; from_proxy?: boolean; formats?: string[]; mp4_quality?: string; stills?: boolean }) =>
+    call<Job>("POST", "/api/jobs/render", b),
   recent: () => call<Recent[]>("GET", "/api/recent"),
   fonts: () => call<{ file: string; url: string; family: string; weight: number; italic: boolean; playoff: boolean }[]>("GET", "/api/fonts"),
   cancelJob: (id: string) => call<{ ok: boolean }>("POST", `/api/jobs/${id}/cancel`),

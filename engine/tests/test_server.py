@@ -231,3 +231,30 @@ def test_offline_source_opens_from_work_folder_and_renders_from_proxy(tmp_path, 
         from reelquick.probe import probe as _probe
         assert _probe(outs["copy"]).codec == "prores" and _probe(outs["copy"]).color_transfer == "bt709"
         assert c.post("/api/audio-preview", json={"at_frame": 1, "seconds": 1}).status_code == 409
+
+
+def test_one_off_export_takes_its_own_formats_and_quality(client):
+    from reelquick.probe import probe
+    r = client.post("/api/clips", json={"in_frame": 60, "out_frame": 90, "desc": "mishap", "formats": ["prores", "mp4"]})
+    cid = r.json()["clip"]["id"]
+    # just a Slack MP4 for the engineers: no ProRes, no still
+    job = client.post("/api/jobs/render", json={"clip_ids": [cid], "formats": ["mp4"], "mp4_quality": "slack",
+                                                "stills": False}).json()
+    done = _wait(client, job["id"])
+    assert done["status"] == "done", done
+    outs = done["detail"]["clips"][0]["outputs"]
+    assert set(outs) == {"mp4_slack", "origin"}, outs
+    assert outs["mp4_slack"].endswith("_slack.mp4")
+    slack = probe(outs["mp4_slack"])
+    assert slack.height == 720 and slack.color_transfer == "bt709"
+    clip = next(c for c in client.get("/api/state").json()["project"]["clips"] if c["id"] == cid)
+    assert clip["formats"] == ["prores", "mp4"]                  # the clip keeps its own formats
+    # the full render afterwards still makes the review MP4: the Slack file does not stand in for it
+    done = _wait(client, client.post("/api/jobs/render", json={"clip_ids": [cid]}).json()["id"])
+    outs = done["detail"]["clips"][0]["outputs"]
+    assert outs["mp4"].endswith("mishap.mp4") and outs["mp4"] != clip["rendered"]["mp4_slack"]
+    assert probe(outs["mp4"]).height == 1080 and outs["prores"].endswith(".mov") and "still" in outs
+    # nonsense is refused before anything runs
+    assert client.post("/api/jobs/render", json={"formats": ["gif"]}).status_code == 400
+    assert client.post("/api/jobs/render", json={"formats": []}).status_code == 400
+    assert client.post("/api/jobs/render", json={"mp4_quality": "huge"}).status_code == 400

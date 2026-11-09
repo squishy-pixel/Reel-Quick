@@ -85,3 +85,16 @@ def test_stereo_pair_plus_surround_tracks(info, tmp_path):
     spec = ClipSpec(in_frame=0, out_frame=12, name="nosur", fmt=OutputFormat.COPY, audio_tracks=(7, 8),
                     surround_tracks=(1, 2, 3, 4, 5, 60), include_surround=True)
     assert [a.channels for a in probe(render_clip(info, spec, tmp_path)).audio] == [2]
+
+def test_mp4_quality_presets(info, tmp_path):
+    from reelquick.render import _h264_encoder
+    crf = {q: _h264_encoder(allow_hw=False, quality=q)[1] for q in ("slack", "review", "high")}
+    assert crf["review"][crf["review"].index("-crf") + 1] == "19" and "-maxrate" not in crf["review"]
+    assert crf["high"][crf["high"].index("-crf") + 1] == "16"
+    assert crf["slack"][crf["slack"].index("-maxrate") + 1] == "5M"
+    with pytest.raises(ValueError):
+        _h264_encoder(allow_hw=False, quality="huge")
+    # slack is 720p and SDR whatever the project asks for, since a chat preview cannot show HLG
+    spec = ClipSpec(in_frame=30, out_frame=60, name="chat", fmt=OutputFormat.MP4, mp4_sdr=False, mp4_quality="slack")
+    got = probe(render_clip(info, spec, tmp_path))
+    assert got.height == 720 and got.codec == "h264" and got.color_transfer == "bt709"

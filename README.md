@@ -78,6 +78,21 @@ track for ProRes and copy outputs, AAC for MP4.
 ProRes 422 for the reels and a share MP4 for the designers. Each format in a
 clip's list renders from the same in and out, so the two never disagree.
 
+**Export just what is needed right now.** Each clip's `Export…` opens a bar
+that renders a one-off set of formats, MP4 quality and still on/off, without
+touching the clip's own formats: an on-air mishap goes to the engineers as a
+single Slack MP4 in seconds. MP4 quality is `slack` (720p SDR, 5 Mb/s peak,
+about 5 MB for ten seconds, every frame kept), `review` (the everyday file)
+or `high`. Slack and High files are named `_slack` / `_high`, so they sit
+beside the review MP4 instead of standing in for it. `reelquick cut
+--quality slack` does the same from the command line.
+
+**Stream copy needs the original.** Copy (the `Original` chip) is frame
+accurate and near instant because every frame of the feed is a keyframe, but
+it is 10-bit 4:2:2 HLG that chat apps and phones will not play. Without the
+original, clips are cut from the proxy, which has a keyframe a second, so they
+are re-encoded (seconds for a short clip) and named `_fromproxy`.
+
 **Every clip has a representative still.** Default is the middle frame of the
 content, or pick one. It lands in `stills/` next to the clips with the same
 name as the clip. Any other frame can be saved with a hand-typed name.
@@ -141,8 +156,10 @@ default anyway, because it is not only a proxy: it is the SDR copy of the
 whole game that goes to the long-term archive. 720p and 960x540 are there in
 the Scan panel or with `--height 720` / `--height 540` when speed matters more
 (the downscale happens inside the first zscale pass, before the LUT). The peak
-bitrate scales with the size so quality holds: 18 Mb/s at 1080p, 8 at 720p,
-5 at 540p, or set it with `--bitrate`. `reelquick proxy ... --jobs 3` cuts the time
+bitrate is archive grade and scales with the size: 30 Mb/s at 1080p (Adobe's
+20 Mb/s HD stock setting, scaled for 59.94), 14 at 720p, 8 at 540p, or set it
+with `--bitrate`. It is a ceiling: the encoder works to a constant quality
+(CRF 18) and only reaches it on the hardest pictures. `reelquick proxy ... --jobs 3` cuts the time
 further by encoding three stretches at once, at the cost of the playlist
 growing in order while it runs. libplacebo cannot help on macOS: ffmpeg only
 drives it through Vulkan, which has no device there.

@@ -4,7 +4,7 @@ import { Filmstrip, THUMB_MAX, THUMB_MIN } from "./components/Filmstrip";
 import { Tc } from "./components/Tc";
 import { Player, type PlayerHandle } from "./components/Player";
 import { Shuttle } from "./components/Shuttle";
-import { ClipEditor, ClipList } from "./components/ClipList";
+import { ClipEditor, ClipList, type QuickExport } from "./components/ClipList";
 import { AudioDialog, JobsPanel, ListsDialog, MarkersPanel, RenderPanel, learnRate } from "./components/Panels";
 import { FileDialog } from "./components/FileDialog";
 
@@ -88,16 +88,16 @@ export default function App() {
     if (n) { const p = await n.pick_file(); if (p) openPath(p); }
     else setDialog({ kind: "open" });
   };
-  const startRender = (clipIds?: string[]) => {
+  const startRender = (clipIds?: string[], once?: QuickExport) => {
     const offline = ws && !ws.source_online;
     if (offline) {
       if (!ws!.has_proxy) { say("The original recording is not available and there is no proxy to cut from.", true); return; }
       if (!confirm("The original recording is not available.\nRender from the proxy instead? Outputs will be SDR at proxy quality, named with _fromproxy, so they are easy to redo from the original later.")) return;
     }
     const pool = clipIds ? project!.clips.filter((c) => clipIds.includes(c.id)) : project!.clips;
-    const n = pool.filter((c) => c.still_frame === null).length;
+    const n = once && !once.stills ? 0 : pool.filter((c) => c.still_frame === null).length;
     if (n && !confirm(`${n} clip${n > 1 ? "s have" : " has"} no still chosen; the middle frame will be used. Render anyway?`)) return;
-    run(api.startRender({ clip_ids: clipIds, from_proxy: !!offline }));
+    run(api.startRender({ clip_ids: clipIds, from_proxy: !!offline, ...(once ?? {}) }));
   };
   const addClip = useCallback(() => {
     if (!project) return;
@@ -301,7 +301,7 @@ export default function App() {
               <div className="panel-head" style={{ padding: "10px 12px 0" }}><h2>Clips <span className="dim" style={{ letterSpacing: 0 }}>{project.clips.length}</span></h2>
                 {selectedClip && <button className="btn small" onClick={() => jumpTo(selectedClip.in_frame)}>Go to in</button>}</div>
             </div>
-            <ClipList clips={project.clips} info={info!} selected={selected} onSelect={setSelected} onPatch={patchClip} onDelete={deleteClip} onSeek={jumpTo} renderRows={renderRows} />
+            <ClipList clips={project.clips} info={info!} selected={selected} onSelect={setSelected} onPatch={patchClip} onDelete={deleteClip} onSeek={jumpTo} onExport={(id, o) => startRender([id], o)} renderRows={renderRows} />
             <div>
               {selectedClip && <ClipEditor clip={selectedClip} info={info!} frame={frame} vocab={state.vocab} onPatch={(p) => patchClip(selectedClip.id, p)} onSeek={jumpTo} onSay={say} />}
               <RenderPanel job={renderJob} clipCount={project.clips.length} missingStills={project.clips.filter((c) => c.still_frame === null).length} selectedId={selected} outDir={ws!.clips_dir}

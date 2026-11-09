@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { Clip, MediaInfo, Vocab } from "../api";
 import { durationText, framesToTc } from "../timecode";
 import { startFrames } from "./Player";
@@ -8,11 +9,59 @@ const FORMATS: { key: string; label: string; title: string }[] = [
   { key: "copy", label: "Original", title: "The source frames untouched, no re-encode, in a .mov. Frame accurate on this intra codec." },
 ];
 
-export function ClipList({ clips, info, selected, onSelect, onPatch, onDelete, onSeek, renderRows }: {
+export type QuickExport = { formats: string[]; mp4_quality: string; stills: boolean };
+
+const QUALITIES: { key: string; label: string; title: string }[] = [
+  { key: "slack", label: "Slack · 720p", title: "Small enough for a chat: 720p SDR, about 5 MB for ten seconds, every frame kept." },
+  { key: "review", label: "Review", title: "The everyday share file at full size." },
+  { key: "high", label: "High", title: "For when the MP4 is the deliverable." },
+];
+const RENDERED_KEYS: Record<string, string> = { prores: "ProRes", mp4: "MP4", mp4_slack: "MP4 Slack", mp4_high: "MP4 High", copy: "Original" };
+
+// The one-off export remembers its last settings for this viewer; it starts as a Slack MP4, no still.
+function loadQuick(): QuickExport {
+  const fallback = { formats: ["mp4"], mp4_quality: "slack", stills: false };
+  try {
+    const v = JSON.parse(localStorage.getItem("rq.quickExport") || "null");
+    if (v && Array.isArray(v.formats) && v.formats.length && typeof v.mp4_quality === "string") return { ...fallback, ...v };
+  } catch { /* ignore */ }
+  return fallback;
+}
+
+function QuickExportBar({ onExport, onClose }: { onExport: (o: QuickExport) => void; onClose: () => void }) {
+  const [o, setO] = useState<QuickExport>(loadQuick);
+  const set = (next: QuickExport) => { setO(next); try { localStorage.setItem("rq.quickExport", JSON.stringify(next)); } catch { /* ignore */ } };
+  const hasMp4 = o.formats.includes("mp4");
+  return (
+    <div className="quickexport" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+      <span className="dim">Export now</span>
+      {FORMATS.map((f) => {
+        const on = o.formats.includes(f.key);
+        return <span key={f.key} className={`chip ${on ? "on" : ""}`} title={f.title} onClick={() => {
+          const formats = on ? o.formats.filter((x) => x !== f.key) : [...o.formats, f.key];
+          if (formats.length) set({ ...o, formats });
+        }}>{f.label}</span>;
+      })}
+      <select className="text" style={{ padding: "1px 4px", fontSize: 10 }} disabled={!hasMp4} value={o.mp4_quality}
+        title={QUALITIES.find((q) => q.key === o.mp4_quality)?.title} onChange={(e) => set({ ...o, mp4_quality: e.target.value })}>
+        {QUALITIES.map((q) => <option key={q.key} value={q.key}>{q.label}</option>)}
+      </select>
+      <span className={`chip ${o.stills ? "on" : ""}`} title="Also save the clip's still(s)" onClick={() => set({ ...o, stills: !o.stills })}>Still</span>
+      <span style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
+        <button className="btn small primary" onClick={() => { onExport(o); onClose(); }}>Export</button>
+        <button className="btn small" onClick={onClose}>Cancel</button>
+      </span>
+    </div>
+  );
+}
+
+export function ClipList({ clips, info, selected, onSelect, onPatch, onDelete, onSeek, onExport, renderRows }: {
   clips: Clip[]; info: MediaInfo; selected: string | null; onSelect: (id: string) => void;
   onPatch: (id: string, patch: Partial<Clip>) => void; onDelete: (id: string) => void; onSeek: (frame: number) => void;
+  onExport: (id: string, o: QuickExport) => void;
   renderRows: Record<string, { status: string; progress: number }>;
 }) {
+  const [exporting, setExporting] = useState<string | null>(null);
   const rate = { num: info.rate_num, den: info.rate_den };
   const base = startFrames(info);
   const tc = (f: number) => framesToTc(base + f, rate, info.drop_frame);
@@ -26,7 +75,7 @@ export function ClipList({ clips, info, selected, onSelect, onPatch, onDelete, o
       {clips.map((c, i) => {
         const still = c.still_frame ?? Math.floor((c.in_frame + c.out_frame) / 2);
         const r = renderRows[c.id];
-        const rendered = Object.keys(c.rendered || {}).filter((k) => ["prores", "mp4", "copy"].includes(k));
+        const rendered = Object.keys(c.rendered || {}).filter((k) => k in RENDERED_KEYS).map((k) => RENDERED_KEYS[k]);
         return (
           <div key={c.id} className={`cliprow ${selected === c.id ? "selected" : ""}`} onClick={() => { onSelect(c.id); }} onDoubleClick={() => onSeek(c.in_frame)}>
             <img className="still" src={`/api/frame/${still}?width=320`} alt="" loading="lazy" />
@@ -56,8 +105,11 @@ export function ClipList({ clips, info, selected, onSelect, onPatch, onDelete, o
                     if (next.length) onPatch(c.id, { formats: next });
                   }}>{f.label}</span>;
                 })}
-                <span className="chip" style={{ marginLeft: "auto" }} onClick={() => onDelete(c.id)} title="Delete clip">✕</span>
+                <span className={`chip ${exporting === c.id ? "on" : ""}`} style={{ marginLeft: "auto" }} title="Export just what you need right now (e.g. a Slack MP4), without changing this clip's formats"
+                  onClick={() => setExporting(exporting === c.id ? null : c.id)}>Export…</span>
+                <span className="chip" onClick={() => onDelete(c.id)} title="Delete clip">✕</span>
               </div>
+              {exporting === c.id && <QuickExportBar onExport={(o) => onExport(c.id, o)} onClose={() => setExporting(null)} />}
             </div>
           </div>
         );

@@ -29,8 +29,12 @@ from .timecode import frames_to_seconds
 
 
 def default_bitrate(height: int) -> str:
-    """Peak bitrate holding the same bits per pixel at every size: 8 Mb/s at 720p, 18 at 1080p, 5 at 540p."""
-    return f"{max(2, math.ceil(8 * (height / 720) ** 2))}M"
+    """Peak bitrate, the same bits per pixel at every size: 30 Mb/s at 1080p, 14 at 720p, 8 at 540p.
+
+    30 at 1080p59.94 is Adobe's 20 Mb/s HD stock setting scaled for twice the frame rate (about 1.5x,
+    not 2x: frames 1/60 s apart differ less, so each costs fewer bits). It is a ceiling: the encoder
+    works to a constant quality and only reaches it on the hardest pictures."""
+    return f"{max(2, math.ceil(30 * (height / 1080) ** 2))}M"
 
 
 @dataclass
@@ -50,10 +54,15 @@ class ProxySettings:
     hls_segment_seconds: float = 4.0
     also_mp4: bool = True            # keep a single reference MP4 next to it (remuxed, no second encode)
 
-
     def __post_init__(self) -> None:
         if not self.bitrate:
             self.bitrate = default_bitrate(self.height)
+
+
+def _average_of(peak: str) -> str:
+    """60% of a peak like '30M', for encoders that take an average target rather than a quality."""
+    num, unit = (peak[:-1], peak[-1]) if peak[-1].isalpha() else (peak, "")
+    return f"{max(1, round(float(num) * 0.6))}{unit}"
 
 
 def pick_encoder(settings: ProxySettings) -> tuple[str, list[str]]:
@@ -69,13 +78,15 @@ def pick_encoder(settings: ProxySettings) -> tuple[str, list[str]]:
     if settings.prefer_gpu and encoder_works("h264_nvenc"):
         # No B-frames anywhere in the proxy: timestamps then start at zero in the HLS segments as well as
         # the MP4, so frame N of the proxy is frame N of the source, and seeks land faster.
-        return "h264_nvenc", ["-preset", "p4", "-rc", "vbr", "-cq", "23", "-b:v", settings.bitrate,
+        return "h264_nvenc", ["-preset", "p4", "-rc", "vbr", "-cq", "20", "-b:v", settings.bitrate,
                               "-maxrate", settings.bitrate, "-bf", "0"]
     if settings.prefer_gpu and encoder_works("h264_videotoolbox"):
-        # Apple Silicon media engine: fast, and the quality knob is a bitrate.
-        return "h264_videotoolbox", ["-b:v", settings.bitrate, "-maxrate", settings.bitrate, "-allow_sw", "1", "-bf", "0"]
+        # Apple Silicon media engine: fast, and the quality knob is a bitrate. -b:v is the average it aims
+        # for, so aim below the ceiling the way the quality-led encoders land below it on their own.
+        return "h264_videotoolbox", ["-b:v", _average_of(settings.bitrate), "-maxrate", settings.bitrate,
+                                     "-allow_sw", "1", "-bf", "0"]
     if caps.has_encoder("libx264"):
-        return "libx264", ["-preset", "veryfast", "-crf", "21", "-maxrate", settings.bitrate,
+        return "libx264", ["-preset", "veryfast", "-crf", "18", "-maxrate", settings.bitrate,
                            "-bufsize", settings.bitrate, "-bf", "0"]
     raise FfmpegError(["proxy"], -1, "no usable H.264 encoder in this ffmpeg build")
 

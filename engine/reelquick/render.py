@@ -24,6 +24,12 @@ class OutputFormat(str, Enum):
 
 PRORES_PROFILES = {"proxy": 0, "lt": 1, "standard": 2, "hq": 3}
 
+# Share MP4 quality. "review" is the everyday file; "slack" is small enough to drop into a chat
+# (720p, about 5 MB for ten seconds, every frame kept so a glitch can be stepped through);
+# "high" is for when the MP4 is the deliverable.
+MP4_QUALITIES = ("slack", "review", "high")
+SLACK_HEIGHT = 720
+
 
 @dataclass
 class ClipSpec:
@@ -39,6 +45,7 @@ class ClipSpec:
     prores_profile: str = "standard"
     mp4_sdr: bool = True
     mp4_height: int | None = None     # None keeps source size
+    mp4_quality: str = "review"       # one of MP4_QUALITIES
     copy_container: str = "mov"       # or 'mxf'
     extra: dict = field(default_factory=dict)
 
@@ -102,12 +109,16 @@ def build_render_args(info: MediaInfo, spec: ClipSpec, out_path: Path, allow_hw:
                 args += ["-c:a", "pcm_s24le", *a_titles, *a_default]
         else:
             parts: list[str] = []
-            if spec.mp4_height and spec.mp4_height < info.height:
-                parts.append(f"scale=-2:{spec.mp4_height}")
-            if spec.mp4_sdr:
+            height = spec.mp4_height
+            if spec.mp4_quality == "slack":
+                height = min(height or SLACK_HEIGHT, SLACK_HEIGHT)
+            if height and height < info.height:
+                parts.append(f"scale=-2:{height}")
+            # a chat preview has no idea what HLG is, so the Slack file is always SDR
+            if spec.mp4_sdr or spec.mp4_quality == "slack":
                 parts += [sdr_filter(info, caps), SDR_TAG_FILTER]
                 tags = SDR_TAG_ARGS
-                encoder, enc_args = _h264_encoder(allow_hw)
+                encoder, enc_args = _h264_encoder(allow_hw, spec.mp4_quality)
             else:
                 parts += ["format=yuv420p10le", source_tag_filter(info)]
                 tags = source_tag_args(info)
@@ -128,12 +139,20 @@ def build_render_args(info: MediaInfo, spec: ClipSpec, out_path: Path, allow_hw:
     return args, float(duration)
 
 
-def _h264_encoder(allow_hw: bool = True) -> tuple[str, list[str]]:
+def _h264_encoder(allow_hw: bool = True, quality: str = "review") -> tuple[str, list[str]]:
+    if quality not in MP4_QUALITIES:
+        raise ValueError(f"mp4 quality must be one of {', '.join(MP4_QUALITIES)}")
+    # slack caps the peak so the size is predictable; review and high are quality-led with no cap
+    cap = ["-maxrate", "5M", "-bufsize", "10M"] if quality == "slack" else []
     if allow_hw and encoder_works("h264_nvenc"):
-        return "h264_nvenc", ["-preset", "p5", "-rc", "vbr", "-cq", "21", "-b:v", "0", "-bf", "2"]
+        cq = {"slack": "25", "review": "21", "high": "18"}[quality]
+        return "h264_nvenc", ["-preset", "p5", "-rc", "vbr", "-cq", cq, "-b:v", "0", *cap, "-bf", "2"]
     if allow_hw and encoder_works("h264_videotoolbox"):
-        return "h264_videotoolbox", ["-b:v", "12M", "-maxrate", "16M", "-allow_sw", "1"]
-    return "libx264", ["-preset", "medium", "-crf", "19"]
+        rate = {"slack": ["-b:v", "4M", "-maxrate", "5M"], "review": ["-b:v", "12M", "-maxrate", "16M"],
+                "high": ["-b:v", "24M", "-maxrate", "32M"]}[quality]
+        return "h264_videotoolbox", [*rate, "-allow_sw", "1"]
+    crf = {"slack": "23", "review": "19", "high": "16"}[quality]
+    return "libx264", ["-preset", "medium", "-crf", crf, *cap]
 
 
 def _prores_encoder(profile: int, allow_hw: bool = True) -> tuple[str, list[str]]:
