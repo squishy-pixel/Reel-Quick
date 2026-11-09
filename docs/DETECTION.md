@@ -506,12 +506,20 @@ close-ups that the shell vote has no category for.
   So a quarter title is never rejected outright. It is a Score candidate,
   and the reading of its text (OCR, step 6) plus where it falls in the game
   suggest whether it is ours.
-- **Standings: ours just before kickoff, but a graphic that says
-  "STANDINGS" is not ours.** Our Standings shell runs just before kickoff;
-  a graphic carrying the word STANDINGS is the network's. That makes the
-  on-screen text the deciding test, another job for OCR. (Worth confirming
-  with TJ how our pre-kickoff standings graphic is titled, so the rule can
-  be written exactly.)
+- **Standings and schedules: ours is known by its layout, not its words.**
+  Our graphic runs just before kickoff: the two head coaches in video boxes
+  on either side, and the table in the centre. Its title contains
+  `STANDINGS`, with the rest of the title changing with the leagues
+  involved. The same layout is sometimes used for the remaining schedule,
+  and then the title contains `SCHEDULE` (the Schedules shell). The network
+  also shows standings and schedules its own way throughout the game, with
+  the same words. So the word alone decides nothing:
+  - **Ours or not** comes from the layout (coach boxes plus a centre table),
+    which is what the patch matcher already keys on.
+  - **Standings or Schedules** comes from the title text, once the layout
+    says it is ours (OCR, step 6).
+  - A standings or schedule graphic without that layout is the network's,
+    and is logged in Other Content if it is kept at all.
 - **Logo bumpers are mostly not ours, but some are.** TJ will mark ours as
   they come up, and those frames move from the reject set to the library.
   An animated bumper, or one over a scenic shot, is logged in the other
