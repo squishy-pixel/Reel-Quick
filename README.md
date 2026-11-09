@@ -138,7 +138,7 @@ and `19:32:05;12` all parse.
 
 ```bash
 brew install ffmpeg uv
-git clone -b claude/tnf-clip-extraction-tool-d6mcix https://github.com/squishy-pixel/Reel-Quick ~/Dev/Reel-Quick
+git clone https://github.com/squishy-pixel/Reel-Quick ~/Dev/Reel-Quick
 cd ~/Dev/Reel-Quick/engine
 uv sync --extra dev --extra app
 cp /path/to/NBCU_HLG2SDR_DL_v1.2.cube luts/
@@ -176,7 +176,7 @@ nothing else needs installing first.
 winget install Gyan.FFmpeg
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 # close and reopen PowerShell so ffmpeg and uv are on PATH
-git clone -b claude/tnf-clip-extraction-tool-d6mcix https://github.com/squishy-pixel/Reel-Quick
+git clone https://github.com/squishy-pixel/Reel-Quick
 cd Reel-Quick\engine
 uv sync --extra dev
 
