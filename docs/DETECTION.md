@@ -6,7 +6,8 @@ November 2026. Read this before working on detection.
 
 ## What gets detected
 
-Every detection carries two labels.
+Every detection carries three labels: what it is, whose it is, and which part
+of the broadcast it is in.
 
 **What it is**
 
@@ -14,7 +15,9 @@ Every detection carries two labels.
   (Match-Up, Player Card, Scenic Comp, ...). Shells sit over game footage,
   drone shots or anything else, so recognising the graphic is the core
   problem, not recognising the picture.
-- **Booth**: the announcers on camera.
+- **Booth**: the announcers (Al Michaels and Kirk Herbstreit) on camera. The
+  booth is ours: they sit in front of an LED wall showing our background
+  design, so any booth shot carries our work. Recognise it by that background.
 - **Scenic**: scenic and drone shots.
 - **Fireworks**: picture and audio (the bursts).
 - **Other graphic**: a graphic that is clearly not game footage but matches
@@ -22,14 +25,30 @@ Every detection carries two labels.
 
 **Whose it is**
 
-- **Ours**: what we deliver.
+- **Ours** (Girraphic): what we deliver, booth included.
 - **NBC design**: graphics made by the NBC designers.
 - **Other contributor**: anyone else.
 
 Picking up content that is not ours is not an error. It is wanted, but it is
 categorised separately and, importantly, **named and filed separately**, so it
 can never land among our deliverables. The owner must change the file name
-and the output folder, not just a tag in the project file.
+and the output folder, not just a tag in the project file. Working folder
+names: `Girraphic Content` and `Other Content` (TJ: "probably something like",
+not final; keep them a setting, not hard-coded).
+
+There are no NBC examples yet. TJ will cut them as they come up; they become a
+second reference set, so ours-or-NBC is a matching problem like the shells.
+
+**Which part of the broadcast**
+
+`pre`, `game` (first half), `half`, `game` (second half), `post`, in program
+order. The studio shows (pre, half, post) are produced by a different group
+from the game, and we work for both, so every clip carries its phase. Phases
+come from four boundaries per game: kickoff, end of the first half,
+second-half kickoff, end of the game (overtime is still `game`). The operator
+can set them, and the detector can suggest them: the score bug is on screen
+during the game and absent in the studio shows. The phase is available to the
+naming pattern and the output folders.
 
 ## Fireworks
 
@@ -37,7 +56,8 @@ Fireworks are ours unless they are a touchdown or the national anthem.
 
 1. Detect all fireworks (picture plus audio bursts).
 2. Not ours if inside the anthem window: the operator marks it once per
-   game, since it sits at a predictable point in the pregame.
+   game, alongside the phase boundaries, since it sits at a predictable
+   point in the pregame.
 3. Not ours if within about 30 s after a touchdown: read the score bug, and a
    jump of 6 points marks one.
 4. Everything else is ours.
@@ -72,7 +92,8 @@ Nothing ships on how it looks. Each step is scored against games whose
 answers are known:
 
 - **TB at DAL (2026)**: the tech's log is the answer key (`markers.py` reads it).
-- **A full game from last season** plus its cut clips. The trailing number in
+- **Last season's full games**, at `G:\2025 TNF Game Reviews` on TJ's PC,
+  plus their cut clips in the library. The trailing number in
   the clip names (`...HotAirBalloons00260425`) may be the source frame
   number. Unverified: TJ is not sure. Check it first by comparing a clip's
   frames with the recording at that frame. If it holds, every clip of that
@@ -87,16 +108,19 @@ and how far suggested in/out points land from the real ones.
 1. Verify the frame-number hypothesis on one of last season's full games.
 2. Fingerprint the library and one game; measure shell matching on the
    known game before anything is built into the app.
-3. Candidate markers in the app (a new marker source beside `log` and `user`),
-   with the what and whose labels, and owner-aware naming and folders.
-4. Fireworks (audio + picture), then the anthem and touchdown rules.
-5. OCR naming suggestions.
-6. Feedback loop: confirmed clips into the library.
+3. Phase boundaries and the anthem window in the app (set by hand first),
+   with `{phase}` in the naming pattern.
+4. Candidate markers in the app (a new marker source beside `log` and `user`),
+   with the what, whose and phase labels, and owner-aware naming and folders.
+5. Fireworks (audio + picture), then the anthem and touchdown rules.
+6. OCR naming suggestions, and phase suggestions from the score bug.
+7. Feedback loop: confirmed clips into the library.
 
 ## Open questions
 
-- Naming and filing for content that is not ours: pattern and folder for NBC
-  design and for other contributors.
-- Is the booth ours, someone else's, or both depending on the shot?
-- How to tell NBC design graphics from ours when both are new: a separate
-  reference set of NBC work would make it a matching problem as well.
+- Final folder names and file-name pattern for content that is not ours
+  (working names above).
+- Should the phase be a folder, part of the file name, or both?
+- Does `G:\2025 TNF Game Reviews` hold the original MXFs or reduced copies? If
+  reduced, check they keep every frame at 59.94 and start where the original
+  recording did, or frame numbers will not line up.
