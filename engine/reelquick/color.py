@@ -129,15 +129,22 @@ def active_lut() -> Lut | None:
 
 
 def filter_path(path: str | Path) -> str:
-    """Quote a file path for use inside an ffmpeg filter graph.
+    """Escape a file path for use as an option value inside an ffmpeg filter graph.
 
-    Filter graphs treat ':' and '\\' specially, which is every Windows path.
-    Forward slashes work on Windows, and the drive colon is escaped inside
-    single quotes.
+    A filter graph is parsed twice (see "Notes on filtergraph escaping" in the
+    ffmpeg-filters docs): first the graph parser splits filters and their
+    argument strings, then each filter's option parser splits ``key=value``
+    pairs. Both levels treat ``\\`` and ``'`` specially, the option level also
+    treats ``:`` as a separator, and the graph level ``[ ] , ;``. Shell-style
+    quoting (``'\\''``) does not survive both passes, so escape each level in
+    turn with backslashes. Backslashes in the path become forward slashes
+    first (Windows accepts them), so ``C:\\x`` becomes ``C\\\\\\:/x``.
     """
     text = str(path).replace("\\", "/")
-    text = text.replace("'", r"'\''").replace(":", r"\:")
-    return f"'{text}'"
+    # level 1: the filter's option parser
+    text = re.sub(r"([\\':])", r"\\\1", text)
+    # level 2: the filter graph parser
+    return re.sub(r"([\\'\[\],;])", r"\\\1", text)
 
 
 def source_tag_args(info: MediaInfo) -> list[str]:
