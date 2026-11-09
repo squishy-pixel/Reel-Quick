@@ -24,7 +24,7 @@ export interface Job {
 export interface Workspace { source: string; source_online: boolean; root: string; project_path: string; has_filmstrip: boolean; has_proxy: boolean; proxy_url: string | null; proxy_complete: boolean; proxy_building: boolean; proxy_available_seconds: number; proxy_start_offset: number; clips_dir: string }
 export interface Recent { root: string; project_path: string; source: string; source_online: boolean; game: Game; clips: number; has_proxy: boolean; has_filmstrip: boolean; modified: number }
 export type Vocab = { shells: string[]; cameras: string[]; engines: string[]; segments: string[] };
-export type Prefs = { shortcuts: Record<string, string> };
+export type Prefs = { shortcuts: Record<string, string>; ui: Record<string, unknown> };
 export interface AppState {
   version: string; workspace: Workspace | null; project: Project | null; jobs: Job[]; work_root: string; vocab: Vocab;
   prefs: Prefs;

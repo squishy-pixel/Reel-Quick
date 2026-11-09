@@ -262,9 +262,13 @@ def test_one_off_export_takes_its_own_formats_and_quality(client):
 
 
 def test_prefs_persist_in_the_work_root(client):
-    assert client.get("/api/state").json()["prefs"] == {"shortcuts": {}}
+    assert client.get("/api/state").json()["prefs"] == {"shortcuts": {}, "ui": {}}
     r = client.put("/api/prefs", json={"shortcuts": {"clear_marks": "Ctrl+Shift+X"}, "nonsense": 1})
-    assert r.json() == {"shortcuts": {"clear_marks": "Ctrl+Shift+X"}}
+    assert r.json() == {"shortcuts": {"clear_marks": "Ctrl+Shift+X"}, "ui": {}}
+    # ui settings merge key by key, so the window can save one without resending the rest
+    client.put("/api/prefs", json={"ui": {"thumbW": 200}})
+    assert client.put("/api/prefs", json={"ui": {"quickExport": {"formats": ["mp4"]}}}).json()["ui"] == {
+        "thumbW": 200, "quickExport": {"formats": ["mp4"]}}
     root = Path(client.get("/api/state").json()["work_root"])
     assert (root / "prefs.json").is_file()
     assert client.get("/api/state").json()["prefs"]["shortcuts"] == {"clear_marks": "Ctrl+Shift+X"}

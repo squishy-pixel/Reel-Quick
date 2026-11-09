@@ -9,6 +9,7 @@ import { AudioDialog, JobsPanel, MarkersPanel, RenderPanel, learnRate } from "./
 import { FileDialog } from "./components/FileDialog";
 import { SettingsDialog } from "./components/Settings";
 import { ACTIONS, type ActionId, actionFor, bindingsFrom, comboOf, overridesOf, showKey, tip } from "./shortcuts";
+import { getUi, loadUiPrefs, setUi } from "./uiPrefs";
 
 type Dialog = null | { kind: "open" } | { kind: "outdir" } | { kind: "help" } | { kind: "still" } | { kind: "settings"; tab?: "shortcuts" | "lists" } | { kind: "audio"; tracks: { track: number; url: string; channels: number }[] | null };
 
@@ -41,8 +42,16 @@ export default function App() {
     }).catch(() => {});
   }, []);
   useEffect(() => { if (state && !state.project) api.recent().then(setRecent).catch(() => setRecent([])); }, [state?.project === null]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [thumbW, setThumbWState] = useState(() => { try { return Math.max(THUMB_MIN, Math.min(THUMB_MAX, Number(localStorage.getItem("rq.thumbW")) || 160)); } catch { return 160; } });
-  const setThumbW = (w: number) => { setThumbWState(w); try { localStorage.setItem("rq.thumbW", String(w)); } catch { /* ignore */ } };
+  const clampThumb = (w: unknown) => Math.max(THUMB_MIN, Math.min(THUMB_MAX, Number(w) || 160));
+  const [thumbW, setThumbWState] = useState(() => clampThumb(getUi("thumbW", 160)));
+  const setThumbW = (w: number) => { setThumbWState(w); setUi("thumbW", w); };
+  // The saved UI settings arrive with the first state; the thumbnail size follows them once.
+  const uiLoaded = useRef(false);
+  useEffect(() => {
+    if (!state?.prefs) return;
+    loadUiPrefs(state.prefs.ui);
+    if (!uiLoaded.current) { uiLoaded.current = true; setThumbWState(clampThumb(getUi("thumbW", 160))); }
+  }, [state?.prefs]); // eslint-disable-line react-hooks/exhaustive-deps
   const player = useRef<PlayerHandle>(null);
   const undoStack = useRef<UndoEntry[]>([]);
   const redoStack = useRef<UndoEntry[]>([]);
