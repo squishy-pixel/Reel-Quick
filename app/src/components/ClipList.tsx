@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Clip, MediaInfo, Vocab } from "../api";
+import { getUi, setUi } from "../uiPrefs";
 import { durationText, framesToTc } from "../timecode";
 import { startFrames } from "./Player";
 
@@ -21,16 +22,14 @@ const RENDERED_KEYS: Record<string, string> = { prores: "ProRes", mp4: "MP4", mp
 // The one-off export remembers its last settings for this viewer; it starts as a Slack MP4, no still.
 function loadQuick(): QuickExport {
   const fallback = { formats: ["mp4"], mp4_quality: "slack", stills: false };
-  try {
-    const v = JSON.parse(localStorage.getItem("rq.quickExport") || "null");
-    if (v && Array.isArray(v.formats) && v.formats.length && typeof v.mp4_quality === "string") return { ...fallback, ...v };
-  } catch { /* ignore */ }
+  const v = getUi<Partial<QuickExport> | null>("quickExport", null);
+  if (v && Array.isArray(v.formats) && v.formats.length && typeof v.mp4_quality === "string") return { ...fallback, ...v };
   return fallback;
 }
 
 function QuickExportBar({ onExport, onClose }: { onExport: (o: QuickExport) => void; onClose: () => void }) {
   const [o, setO] = useState<QuickExport>(loadQuick);
-  const set = (next: QuickExport) => { setO(next); try { localStorage.setItem("rq.quickExport", JSON.stringify(next)); } catch { /* ignore */ } };
+  const set = (next: QuickExport) => { setO(next); setUi("quickExport", next); };
   const hasMp4 = o.formats.includes("mp4");
   return (
     <div className="quickexport" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>

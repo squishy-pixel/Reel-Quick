@@ -1,15 +1,16 @@
 import { useState } from "react";
 import type { AppState, Job, Marker, MediaInfo, Vocab } from "../api";
 import { clockText } from "../timecode";
+import { getUi, setUi } from "../uiPrefs";
 
 // Seconds of program per second of work, learned from finished jobs; defaults from the first real game.
 export function rateFor(kind: string): number {
-  try { const v = localStorage.getItem(`rq.rate.${kind}`); if (v) return Number(v); } catch { /* ignore */ }
+  const v = Number(getUi(`rate.${kind}`, 0)); if (v > 0) return v;
   return kind === "filmstrip" ? 68 : 8.6;
 }
 export function learnRate(job: Job, duration: number) {
   if (job.status !== "done" || !job.elapsed || job.elapsed < 5) return;
-  try { localStorage.setItem(`rq.rate.${job.kind}`, String(duration / job.elapsed)); } catch { /* ignore */ }
+  setUi(`rate.${job.kind}`, duration / job.elapsed);
 }
 export const estimate = (kind: string, duration: number) => clockText(duration / rateFor(kind));
 

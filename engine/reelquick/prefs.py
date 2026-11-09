@@ -15,7 +15,9 @@ PREFS_FILE = "prefs.json"
 
 DEFAULT_PREFS: dict = {
     "shortcuts": {},        # action id -> key combination, only where it differs from the UI's default
+    "ui": {},               # small UI conveniences (thumbnail size, last quick export, learned job rates)
 }
+MERGED = {"ui"}             # a partial update adds to these instead of replacing them
 
 
 def load_prefs(work_root: Path) -> dict:
@@ -38,7 +40,10 @@ def save_prefs(work_root: Path, changes: dict) -> dict:
     prefs = load_prefs(work_root)
     for k, v in (changes or {}).items():
         if k in prefs and isinstance(v, type(prefs[k])):
-            prefs[k] = v
+            if k in MERGED:
+                prefs[k] = {**prefs[k], **v}
+            else:
+                prefs[k] = v
     if isinstance(prefs.get("shortcuts"), dict):
         prefs["shortcuts"] = {str(a): str(b) for a, b in prefs["shortcuts"].items() if isinstance(b, str)}
     work_root.mkdir(parents=True, exist_ok=True)
