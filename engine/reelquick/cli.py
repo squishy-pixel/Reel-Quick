@@ -382,7 +382,7 @@ def init(src: str, project_path: str, date: str, week: str, away: str, home: str
     proj = Project(source=str(Path(src).resolve()), info=info, game=GameInfo(date, week, away, home))
     proj.save(project_path)
     click.echo(f"wrote {project_path}")
-    click.echo(f"example name: {build_name(proj.game, 1, 'LowerThird', 'Herbstreit pick')}")
+    click.echo(f"example name: {build_name(proj.game, 1, 'MatchUp', 'Hot air balloons')}")
 
 
 @main.command("render")

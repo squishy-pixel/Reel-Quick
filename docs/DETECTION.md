@@ -18,6 +18,7 @@ of the broadcast it is in.
 - **Booth**: the announcers (Al Michaels and Kirk Herbstreit) on camera. The
   booth is ours: they sit in front of an LED wall showing our background
   design, so any booth shot carries our work. Recognise it by that background.
+  A booth clip is named `Booth`, never after whoever is on camera.
 - **Scenic**: scenic and drone shots.
 - **Fireworks**: picture and audio (the bursts).
 - **Other graphic**: a graphic that is clearly not game footage but matches
@@ -135,8 +136,9 @@ and how far suggested in/out points land from the real ones.
 
 - Where `{phase}` sits in the default pattern (currently
   `{date}_{game}_{seq:02d}_{shell}_{camera}_{desc}`): proposed after the
-  sequence, e.g. `261022_WK08-NEvCHI_07_Pre_LowerThird_Herbstreit-pick`, with
-  the phase spelled `Pre`, `Game`, `Half`, `Post`.
+  sequence, e.g. `261022_WK08-NEvCHI_07_Pre_MatchUp_HotAirBalloons` and
+  `261022_WK08-NEvCHI_08_Game_Booth`, with the phase spelled `Pre`, `Game`,
+  `Half`, `Post`. TJ confirmed this placement.
 - Does `G:\2025 TNF Game Reviews` hold the original MXFs or reduced copies? If
   reduced, check they keep every frame at 59.94 and start where the original
   recording did, or frame numbers will not line up.

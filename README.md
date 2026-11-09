@@ -114,7 +114,8 @@ frame; `-frames:v` pins the count at the far end.
 
 ```
 {date}_{week}_{matchup}_{seq:02d}_{shell}_{desc}
-261022_WK08_NEvCHI_07_LowerThird_Herbstreit-pick.mov
+261022_WK08_NEvCHI_07_MatchUp_HotAirBalloons.mov
+261022_WK08_NEvCHI_08_Booth.mov
 ```
 
 Date as YYMMDD, NFL week as WKnn, away team then home team, a sequence number
@@ -126,7 +127,7 @@ Four columns, header row optional:
 
 | Time | Type | Shell | Description |
 |------|------|-------|-------------|
-| 19:32:05 | AR | LowerThird | Herbstreit pick |
+| 19:32:05 | AR | MatchUp | Hot air balloons |
 | 7:41 PM | booth | | Al and Kirk open |
 
 Time is time of day on the truck clock, in Eastern. The recorder timecode is
@@ -189,7 +190,7 @@ uv run reelquick probe D:\Records\game.mxf
 uv run reelquick markers D:\Records\game.mxf log.csv
 uv run reelquick filmstrip D:\Records\game.mxf D:\Work\game\strip --interval 2 --workers 8
 uv run reelquick proxy D:\Records\game.mxf D:\Work\game\proxy.mp4
-uv run reelquick cut D:\Records\game.mxf D:\Work\game\clips --in 19:32:05 --out 19:32:14 --format prores --format mp4 --name 261022_WK08_NEvCHI_01_LowerThird_Herbie-pick
+uv run reelquick cut D:\Records\game.mxf D:\Work\game\clips --in 19:32:05 --out 19:32:14 --format prores --format mp4 --name 261022_WK08_NEvCHI_01_MatchUp_HotAirBalloons
 uv run reelquick still D:\Records\game.mxf D:\Work\game\clips\stills --at 19:32:09 --name 261022_WK08_NEvCHI_booth-wide
 ```
 
@@ -204,9 +205,9 @@ filter, and the engine looks in the keg-only `ffmpeg-full` folder on its own
 Output layout for one clip rendered as ProRes plus MP4:
 
 ```
-clips\261022_WK08_NEvCHI_01_LowerThird_Herbie-pick.mov
-clips\261022_WK08_NEvCHI_01_LowerThird_Herbie-pick.mp4
-clips\stills\261022_WK08_NEvCHI_01_LowerThird_Herbie-pick.png
+clips\261022_WK08_NEvCHI_01_MatchUp_HotAirBalloons.mov
+clips\261022_WK08_NEvCHI_01_MatchUp_HotAirBalloons.mp4
+clips\stills\261022_WK08_NEvCHI_01_MatchUp_HotAirBalloons.png
 ```
 
 Run the tests with `uv run pytest` inside `engine/`. They generate a short
