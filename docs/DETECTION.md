@@ -489,12 +489,37 @@ close-ups that the shell vote has no category for.
 3. **Group look-alike shells before naming them.** Promo / NBA Promo / Next
    Week Promo, and Match-Up / Next Week Promo, should be one candidate with
    a suggested label. OCR (step 6) can then settle the name.
-4. **TJ to confirm what counts as ours.** Following the brief, the reject
-   set treats network packaging as not ours: quarter titles, Kickoff, Stay
-   Tuned, TNF / Prime / NFL bumpers, State Farm Halftime Show. If any of that
-   is Girraphic's, those entries come out of `reject_wk04.json` (`kind`
-   field) before the next run. One frame I had first marked "NBA promo" is
-   already out: NBA Promo is a library shell, so it is ours.
+4. ~~**TJ to confirm what counts as ours.**~~ Answered: see "What counts
+   as ours" below. The two quarter titles in `reject_wk04.json` are now
+   `maybe_ours` and no longer reject references; rerun the WK06 measurement
+   before relying on the numbers above. One frame first marked "NBA promo"
+   was already out: NBA Promo is a library shell, so it is ours.
+
+### What counts as ours (TJ, November 2026)
+
+- **Quarter titles can be ours, or not.** We do the score going to break at
+  the end of the 1st and 3rd quarters, and since this season the score
+  coming into the 3rd quarter, just before the Prime Stories shell. The
+  usual text is `END OF 1ST QUARTER`, `START OF 3RD QUARTER`,
+  `END OF 3RD QUARTER`, but production can call for one at any other time,
+  and the text can be wrong (one game this season said just `1ST QUARTER`).
+  So a quarter title is never rejected outright. It is a Score candidate,
+  and the reading of its text (OCR, step 6) plus where it falls in the game
+  suggest whether it is ours.
+- **Standings: ours just before kickoff, but a graphic that says
+  "STANDINGS" is not ours.** Our Standings shell runs just before kickoff;
+  a graphic carrying the word STANDINGS is the network's. That makes the
+  on-screen text the deciding test, another job for OCR. (Worth confirming
+  with TJ how our pre-kickoff standings graphic is titled, so the rule can
+  be written exactly.)
+- **Logo bumpers are mostly not ours, but some are.** TJ will mark ours as
+  they come up, and those frames move from the reject set to the library.
+  An animated bumper, or one over a scenic shot, is logged in the other
+  category (Other Content) either way.
+  - Not ours, and a good reject reference: the bumper used at most games of
+    a view of Earth from space, with a satellite orbiting carrying the team
+    logos and the TNF logo.
+- **State Farm Halftime Show title: not ours.** It stays in the reject set.
 
 ## Order of work
 
