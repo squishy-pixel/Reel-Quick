@@ -470,6 +470,8 @@ Before the shell vote, a sample is dropped when either test fires:
     flat frames from the references too.
 - **"Not ours" reference set.** 75 WK04 frames, labelled by eye from WK04's
   144 false-alarm spans; the manifest is `engine/scripts/reject_wk04.json`.
+  Since then it is 73: the two quarter titles came out (see the rerun
+  below).
   - **What it holds:** network packaging (Stay Tuned, Tonight, TNF / Prime /
     NFL logo bumpers, Kickoff, Thursday wipes, 2nd / 4th Quarter titles,
     State Farm Halftime Show, TNF Nightcap); ad cards and ads (Sunday
@@ -564,9 +566,10 @@ close-ups that the shell vote has no category for.
    a suggested label. OCR (step 6) can then settle the name.
 4. ~~**TJ to confirm what counts as ours.**~~ Answered: see "What counts
    as ours" below. The two quarter titles in `reject_wk04.json` are now
-   `maybe_ours` and no longer reject references; rerun the WK06 measurement
-   before relying on the numbers above. One frame first marked "NBA promo"
-   was already out: NBA Promo is a library shell, so it is ours.
+   `maybe_ours` and no longer reject references. The WK06 numbers above
+   hold with that change: see "Rerun with quarter titles out of the reject
+   set" below. One frame first marked "NBA promo" was already out: NBA
+   Promo is a library shell, so it is ours.
 
 ### What counts as ours (TJ, November 2026)
 
@@ -607,6 +610,62 @@ close-ups that the shell vote has no category for.
     a view of Earth from space, with a satellite orbiting carrying the team
     logos and the TNF logo.
 - **State Farm Halftime Show title: not ours.** It stays in the reject set.
+
+### Rerun with quarter titles out of the reject set
+
+Rerun November 2026 after the 2nd and 4th Quarter titles became
+`maybe_ours`, so the reject set is now 73 WK04 frames. Same WK06 setup,
+patch matcher, equalised luma. The earlier run's files are kept in
+`old-wk06/` in the detection-eval folder.
+
+**Nothing changed in any configuration:**
+
+| | Graphics found | Graphics false alarms | Camera found | Camera false alarms |
+|---|---|---|---|---|
+| no gate | 8 / 10 | 67 | 5 / 6 | 98 |
+| + picture test | 8 / 10 | 66 | 5 / 6 | 22 |
+| **+ picture test + reject set** | **8 / 10** | **36** | **5 / 6** | **6** |
+| whole-frame + gate | 8 / 10 | 67 | 5 / 6 | 152 |
+
+- **The gate's figures are identical too.** The cut-off stays at 0.427: it
+  is set on library frames, and the quarter titles were not the closest
+  reference for any of the frames that fix it.
+  It still drops 686 samples (295 flat), and 2 of the 224 inside cut clips.
+- **Every predicted span is the same** (55 with the gate). The threshold
+  sweep is the same apart from rounding.
+- **Our Score clips were never at risk.** WK06 has two (`Score_01`, END OF
+  1ST QUARTER; `Score_02`, END OF 3RD QUARTER), and both are found in every
+  configuration. Ours is score boxes, team logos and the TNF shield over a
+  stadium with confetti, with the quarter in small type. That shares nothing
+  with the network's quarter cards.
+
+**But WK06's own quarter titles are still rejected.** Only 19 samples got
+less similar to the reject set. 12 of them are network cards in one design:
+big silver text in a blue tunnel with the NFL / Prime logos top right. They
+are `2ND QUARTER`, `3RD QUARTER` and `4TH QUARTER` (frames 1037250–1041405,
+about a minute apart), and `FLASHBACK` (453510–453623). Their closest WK04
+match was a quarter title, at up to 0.87. It is now 0.47–0.58, still past
+0.427, because the TNF Tonight Verizon bumper, the Thursday Night Kickoff
+(Subway) card, the Prime logo bumpers and the Stay Tuned bumper are all
+built on the same blue tunnel. Of the other 7, 3 moved by 0.01 or less and
+stay rejected, and 4 were under the cut-off before and after.
+
+So taking the quarter titles out of the reference set does not keep quarter
+titles out of the reject class. Network packaging in the same design keeps
+rejecting them. That is harmless for this design, which is not ours. But it
+goes against "a quarter title is never rejected outright" if production ever
+used one of ours in that style. Options, to decide before the gate goes into
+the app:
+
+1. **Leave it.** Our Score shell has its own design, and the gate only
+   rejects what looks like the network's cards.
+2. **Exempt text-on-tunnel cards from the gate.** Let them through as
+   Score candidates, and leave the call on whose it is to OCR and the
+   game clock (step 6). That needs a "quarter card" reference to recognise
+   them. On WK06 that lets through 4 network cards.
+3. **Thin the reject set** to the bumpers that do not share the tunnel
+   (Earth/satellite, shield bumpers), at the cost of some packaging false
+   alarms.
 
 ## Findings: phase from the score bug
 
