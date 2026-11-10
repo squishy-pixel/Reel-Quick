@@ -843,8 +843,9 @@ alarms, camera 5 / 6 with 6).
    and free-space check (cloud session). In parallel, phase boundaries from
    the score bug (PC), handed over as `<game>.phases.json`: done for WK04,
    WK06 and WK11, see Findings: phase from the score bug.
-4. Candidate markers in the app (a new marker source beside `log` and `user`),
-   with the what, whose and phase labels, and owner-aware naming and folders.
+4. ~~Candidate markers in the app~~ Done: the Suggested tab imports
+   `<game>.candidates.json`, shows each on the timeline, and accepts (as the
+   label or a look-alike) or dismisses it, with N / A / D and undo.
    `<game>.candidates.json` exists for WK06 (Findings: candidates file).
 5. Fireworks (audio + picture), then the anthem and touchdown rules.
 6. OCR naming suggestions, and phase suggestions from the score bug.

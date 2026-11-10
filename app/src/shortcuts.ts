@@ -7,7 +7,8 @@ export type ActionId =
   | "step_back" | "step_fwd" | "back_1s" | "fwd_1s" | "back_10s" | "fwd_10s" | "go_start" | "go_end"
   | "mark_in" | "mark_out" | "clear_in" | "clear_out" | "clear_marks" | "go_in" | "go_out" | "add_clip"
   | "prev_marker" | "next_marker" | "add_marker" | "still" | "named_still" | "source_frame"
-  | "delete_clip" | "undo" | "redo" | "escape" | "help";
+  | "delete_clip" | "undo" | "redo" | "escape" | "help"
+  | "next_candidate" | "prev_candidate" | "accept_candidate" | "dismiss_candidate";
 
 export const ACTIONS: { id: ActionId; label: string; key: string; group: string }[] = [
   { id: "play", label: "Play / pause", key: "Space", group: "Playback" },
@@ -40,6 +41,10 @@ export const ACTIONS: { id: ActionId; label: string; key: string; group: string 
   { id: "delete_clip", label: "Delete the selected clip", key: "Delete", group: "Mark" },
   { id: "escape", label: "Clear in, out and selection", key: "Escape", group: "Mark" },
   { id: "source_frame", label: "Show the exact source frame while paused", key: "F", group: "View" },
+  { id: "next_candidate", label: "Next suggested segment", key: "N", group: "Review" },
+  { id: "prev_candidate", label: "Previous suggested segment", key: "Shift+N", group: "Review" },
+  { id: "accept_candidate", label: "Accept the suggestion as a clip", key: "A", group: "Review" },
+  { id: "dismiss_candidate", label: "Dismiss the suggestion", key: "D", group: "Review" },
   { id: "undo", label: "Undo", key: "Mod+Z", group: "Edit" },
   { id: "redo", label: "Redo", key: "Mod+Shift+Z", group: "Edit" },
   { id: "help", label: "Keyboard shortcuts", key: "?", group: "Edit" },

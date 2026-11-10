@@ -72,6 +72,35 @@ class ClipEntry:
         return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
 
 
+CANDIDATE_WHAT = ("shell", "booth", "scenic", "closeup", "fireworks", "other")
+CANDIDATE_STATUS = ("pending", "accepted", "dismissed")
+
+
+@dataclass
+class Candidate:
+    """A segment the detector suggests (<game>.candidates.json), waiting for the operator's decision."""
+    id: str
+    in_frame: int
+    out_frame: int
+    what: str                     # shell / booth / scenic / closeup / fireworks / other
+    label: str                    # the shell or category name, as in the vocab lists
+    alternatives: list[str] = field(default_factory=list)   # look-alikes it may be instead
+    whose: str = "unknown"        # ours / nbc / other / unknown
+    strength: float = 0.0         # the detector's score; higher is surer
+    source: str = "detector"
+    status: str = "pending"       # pending / accepted / dismissed
+    clip_id: str | None = None    # the clip made from it, once accepted
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @property
+    def key(self) -> tuple:
+        """What makes two imports of the same suggestion the same: its span. Not the label, which the operator
+        may have changed to one of its look-alikes when accepting it."""
+        return (self.in_frame, self.out_frame)
+
+
 @dataclass
 class StillEntry:
     id: str
@@ -116,6 +145,7 @@ class Project:
     markers: list[Marker] = field(default_factory=list)
     clips: list[ClipEntry] = field(default_factory=list)
     stills: list[StillEntry] = field(default_factory=list)
+    candidates: list[Candidate] = field(default_factory=list)
     # boundary -> {"frame": int | None, "source": "user" | detector name}; see PHASE_BOUNDARIES
     phases: dict = field(default_factory=dict)
     version: int = PROJECT_VERSION
@@ -159,6 +189,55 @@ class Project:
                 self.phases[key] = new
                 changed.append(key)
         return changed
+
+    # ---- candidates ----------------------------------------------------------
+
+    def import_candidates(self, data: dict, parsed: list[Candidate] | None = None) -> dict:
+        """Load a detector's candidates file. Decisions already made (accepted, dismissed) survive a re-import
+        of the same suggestion; pending ones from the same source are replaced by the new file's."""
+        new = parsed if parsed is not None else self.parse_candidates(data)
+        source = str(data.get("source") or "detector")
+        decided = {c.key: c for c in self.candidates if c.status != "pending"}
+        kept = [c for c in self.candidates if c.status != "pending" or c.source != source]
+        added = [c for c in new if c.key not in decided]
+        self.candidates = sorted(kept + added, key=lambda c: (c.in_frame, c.out_frame))
+        return {"added": len(added), "already_decided": len(new) - len(added)}
+
+    def parse_candidates(self, data: dict) -> list[Candidate]:
+        """Check and read a candidates file without changing the project; raises ValueError if it is wrong."""
+        if data.get("version") != 1 or not isinstance(data.get("items"), list):
+            raise ValueError("not a version 1 candidates file")
+        source = str(data.get("source") or "detector")
+        nb = self.info.nb_frames
+        new: list[Candidate] = []
+        for i, it in enumerate(data["items"]):
+            try:
+                a, b = int(it["in_frame"]), int(it["out_frame"])
+            except (KeyError, TypeError, ValueError):
+                raise ValueError(f"item {i + 1}: needs in_frame and out_frame")
+            if not (0 <= a < b <= nb):
+                raise ValueError(f"item {i + 1}: frames {a}-{b} are outside the recording ({nb} frames)")
+            what = str(it.get("what") or "other")
+            new.append(Candidate(
+                id=uuid.uuid4().hex[:8], in_frame=a, out_frame=b,
+                what=what if what in CANDIDATE_WHAT else "other",
+                label=str(it.get("label") or ""),
+                alternatives=[str(x) for x in it.get("alternatives") or [] if str(x) != str(it.get("label") or "")],
+                whose=str(it.get("whose") or "unknown"),
+                strength=float(it.get("strength") or 0.0), source=source))
+        return new
+
+    def accept_candidate(self, cand: Candidate, label: str | None = None) -> "ClipEntry":
+        """Make a clip from a candidate: its span, its label as the shell (or the look-alike picked instead),
+        and a camera for booth and scenic shots. The phase follows the broadcast boundaries."""
+        label = label or cand.label
+        camera = {"booth": "Booth", "scenic": "Scenic"}.get(cand.what, "")
+        whose = cand.whose if cand.whose in WHOSE else "ours"
+        clip = self.add_clip(cand.in_frame, cand.out_frame, shell=label, camera=camera)
+        clip.whose = whose
+        self.renumber()
+        cand.status, cand.clip_id, cand.label = "accepted", clip.id, label
+        return clip
 
     def clip_folder(self, clip: "ClipEntry", base: str | Path) -> Path:
         """Where a clip's files go: Other Content for anything not ours, else a folder per content type."""
@@ -324,6 +403,7 @@ class Project:
             "clips": [c.to_dict() for c in self.clips],
             "stills": [s.to_dict() for s in self.stills],
             "phases": {k: dict(v) for k, v in self.phases.items()},
+            "candidates": [c.to_dict() for c in self.candidates],
         }
 
     def save(self, path: str | Path) -> Path:
@@ -354,5 +434,7 @@ class Project:
             clips=[ClipEntry.from_dict(c) for c in d.get("clips", [])],
             stills=[StillEntry(**s) for s in d.get("stills", [])],
             phases={k: dict(v) for k, v in (d.get("phases") or {}).items() if k in BOUNDARIES and isinstance(v, dict)},
+            candidates=[Candidate(**{k: v for k, v in c.items() if k in Candidate.__dataclass_fields__})
+                        for c in d.get("candidates", [])],
             version=d.get("version", PROJECT_VERSION),
         )

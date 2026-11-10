@@ -62,7 +62,7 @@ def run_app(port: int | None = None, browser: bool = False, work_root: Path | No
     class Api:
         def pick_file(self):
             r = window.create_file_dialog(webview.OPEN_DIALOG, allow_multiple=False,
-                                          file_types=("Video (*.mxf;*.mov;*.mp4;*.mkv)", "All files (*.*)"))
+                                          file_types=("Video (*.mxf;*.mov;*.mp4;*.m4v;*.mkv;*.webm;*.ts;*.mts)", "All files (*.*)"))
             return r[0] if r else None
 
         def pick_folder(self, start=None):

@@ -20,13 +20,18 @@ export interface Settings {
 }
 export type BoundaryKey = "anthem_in" | "anthem_out" | "kickoff" | "half_start" | "second_half_kickoff" | "game_end";
 export type Phases = Partial<Record<BoundaryKey, { frame: number | null; source: string }>>;
-export interface Project { version: number; source: string; info: MediaInfo; game: Game; settings: Settings; markers: Marker[]; clips: Clip[]; stills: Still[]; phases: Phases }
+export interface Candidate {
+  id: string; in_frame: number; out_frame: number; what: "shell" | "booth" | "scenic" | "closeup" | "fireworks" | "other";
+  label: string; alternatives: string[]; whose: string; strength: number; source: string;
+  status: "pending" | "accepted" | "dismissed"; clip_id: string | null;
+}
+export interface Project { version: number; source: string; info: MediaInfo; game: Game; settings: Settings; markers: Marker[]; clips: Clip[]; stills: Still[]; phases: Phases; candidates: Candidate[] }
 export interface SpaceEstimate { bytes: number; free: number | null; dest: string; out_dir: string; fits: boolean }
 export interface Job {
   id: string; kind: string; label: string; status: "queued" | "running" | "done" | "failed" | "cancelled";
   progress: number; detail: any; error: string | null; started: number | null; finished: number | null; elapsed: number; eta: number | null; result: any;
 }
-export interface Workspace { source: string; source_online: boolean; root: string; project_path: string; has_filmstrip: boolean; has_proxy: boolean; proxy_url: string | null; proxy_complete: boolean; proxy_building: boolean; proxy_available_seconds: number; proxy_start_offset: number; clips_dir: string }
+export interface Workspace { source: string; source_online: boolean; root: string; project_path: string; has_filmstrip: boolean; has_proxy: boolean; proxy_url: string | null; proxy_complete: boolean; proxy_building: boolean; proxy_available_seconds: number; proxy_start_offset: number; clips_dir: string; playing_source: boolean; stream_copy_ok: boolean }
 export interface Recent { root: string; project_path: string; source: string; source_online: boolean; game: Game; clips: number; has_proxy: boolean; has_filmstrip: boolean; modified: number }
 export type Vocab = { shells: string[]; cameras: string[]; engines: string[]; segments: string[] };
 export type RenderRequest = { clip_ids?: string[]; overwrite?: boolean; from_proxy?: boolean; formats?: string[]; mp4_quality?: string; stills?: boolean; force?: boolean };
@@ -75,6 +80,9 @@ export const api = {
   startRender: (b: RenderRequest) => call<Job>("POST", "/api/jobs/render", b),
   estimate: (b: RenderRequest) => call<SpaceEstimate>("POST", "/api/render/estimate", b),
   setPhases: (values: Partial<Record<BoundaryKey, number | null>>) => call<AppState>("PUT", "/api/phases", { values }),
+  importCandidates: (data: unknown) => call<AppState & { added: number; already_decided: number }>("POST", "/api/candidates/import", { data }),
+  patchCandidate: (id: string, b: { status?: "pending" | "dismissed"; label?: string }) => call<AppState>("PATCH", `/api/candidates/${id}`, b),
+  acceptCandidate: (id: string, label?: string) => call<AppState & { clip: Clip }>("POST", `/api/candidates/${id}/accept`, { label }),
   importPhases: (data: unknown) => call<AppState & { changed: string[]; kept: string[] }>("POST", "/api/phases/import", { data }),
   recent: () => call<Recent[]>("GET", "/api/recent"),
   fonts: () => call<{ file: string; url: string; family: string; weight: number; italic: boolean; playoff: boolean }[]>("GET", "/api/fonts"),
