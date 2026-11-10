@@ -65,7 +65,7 @@ ffmpeg lookup order is in `ffmpeg.py:_candidate_dirs`: `REELQUICK_FFMPEG_DIR`, t
 - `test_proxy.py::test_single_and_segmented_proxy_agree` guards all of this with frame counts, start offsets and a PSNR comparison of single-pass vs segmented output.
 - Run the HLS encode with `cwd=playlist.parent` and relative names (ffmpeg 9 on Windows misplaces `init.mp4` otherwise).
 - Any ffprobe on a playlist that may still be growing needs a timeout, because a playlist without `#EXT-X-ENDLIST` is live and some builds wait on it.
-- `Workspace.proxy_choice` prefers a finished playlist, then a finished MP4, then a growing playlist. That way a rebuild never replaces a working proxy with a partial one. Builds write to `.partial` names and rename when done.
+- `Workspace.proxy_choice` prefers a finished playlist, then a finished MP4, then the recording itself when `source_playable()` (H.264 8-bit 4:2:0 SDR in MP4/MOV, served at `/media/source`: a downloaded game needs no proxy), then a growing playlist. That way a rebuild never replaces a working proxy with a partial one. Builds write to `.partial` names and rename when done.
 
 ## Cross-platform
 

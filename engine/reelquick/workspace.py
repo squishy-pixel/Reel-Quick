@@ -67,19 +67,35 @@ class Workspace:
         """A finished reference MP4 (builds write to temporary names, so an existing one is whole)."""
         return self.proxy_path.exists() and self.proxy_path.stat().st_size > 0
 
+    def source_playable(self) -> bool:
+        """Whether the player can show the recording itself: H.264 8-bit 4:2:0 SDR in MP4/MOV, with AAC or
+        MP3 audio. A downloaded game usually is, so it can be marked straight away, with no proxy to build.
+        The broadcast MXF never is (10-bit 4:2:2 HLG)."""
+        i = self.project.info
+        if "mp4" not in i.container.lower() and "mov" not in i.container.lower():
+            return False
+        if i.codec != "h264" or i.pix_fmt not in ("yuv420p", "yuvj420p") or i.is_hlg or i.interlaced:
+            return False
+        if any(a.codec not in ("aac", "mp3") for a in i.audio):
+            return False
+        return self.recheck_source()
+
     def proxy_choice(self) -> str | None:
-        """Which proxy the player gets: a finished playlist first, then a finished MP4, and only then a
-        playlist still being written. So a rebuild leaves the old proxy in use until the new one is whole."""
+        """What the player gets: a finished playlist first, then a finished MP4, then the recording itself
+        when the player can show it, and only then a playlist still being written. So a rebuild leaves the
+        old proxy in use until the new one is whole."""
         hls = self.has_hls()
         if hls and hls_complete(self.proxy_playlist):
             return "hls"
         if self.has_mp4():
             return "mp4"
+        if self.source_playable():
+            return "source"
         return "hls" if hls else None
 
     def proxy_url(self) -> str | None:
         choice = self.proxy_choice()
-        return "/media/proxy/index.m3u8" if choice == "hls" else "/media/proxy.mp4" if choice == "mp4" else None
+        return {"hls": "/media/proxy/index.m3u8", "mp4": "/media/proxy.mp4", "source": "/media/source"}.get(choice)
 
     _offset_cache: tuple[str, float, float] | None = None
 
@@ -88,7 +104,7 @@ class Workspace:
         url = self.proxy_url()
         if not url:
             return 0.0
-        path = self.proxy_playlist if url.endswith(".m3u8") else self.proxy_path
+        path = self.proxy_playlist if url.endswith(".m3u8") else self.source if url == "/media/source" else self.proxy_path
         try:
             mtime = path.stat().st_mtime
         except OSError:
@@ -161,8 +177,10 @@ class Workspace:
             "proxy_url": self.proxy_url(),
             "proxy_start_offset": self.proxy_start_offset(),
             # these describe the proxy the player is given, so the UI's "playable so far" matches what plays
-            "proxy_complete": choice == "mp4" or (choice == "hls" and hls_complete(self.proxy_playlist)),
-            "proxy_available_seconds": self.project.info.duration if choice == "mp4" else
+            "proxy_complete": choice in ("mp4", "source") or (choice == "hls" and hls_complete(self.proxy_playlist)),
+            "playing_source": choice == "source",       # the player shows the recording itself; no proxy needed
+            "stream_copy_ok": self.project.info.is_intra,
+            "proxy_available_seconds": self.project.info.duration if choice in ("mp4", "source") else
                                        hls_available_seconds(self.proxy_playlist) if choice == "hls" else 0.0,
             "proxy_building": self.proxy_playlist.exists() and not hls_complete(self.proxy_playlist),
             "clips_dir": str(self.clips_dir),

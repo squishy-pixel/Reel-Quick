@@ -26,7 +26,7 @@ export interface Job {
   id: string; kind: string; label: string; status: "queued" | "running" | "done" | "failed" | "cancelled";
   progress: number; detail: any; error: string | null; started: number | null; finished: number | null; elapsed: number; eta: number | null; result: any;
 }
-export interface Workspace { source: string; source_online: boolean; root: string; project_path: string; has_filmstrip: boolean; has_proxy: boolean; proxy_url: string | null; proxy_complete: boolean; proxy_building: boolean; proxy_available_seconds: number; proxy_start_offset: number; clips_dir: string }
+export interface Workspace { source: string; source_online: boolean; root: string; project_path: string; has_filmstrip: boolean; has_proxy: boolean; proxy_url: string | null; proxy_complete: boolean; proxy_building: boolean; proxy_available_seconds: number; proxy_start_offset: number; clips_dir: string; playing_source: boolean; stream_copy_ok: boolean }
 export interface Recent { root: string; project_path: string; source: string; source_online: boolean; game: Game; clips: number; has_proxy: boolean; has_filmstrip: boolean; modified: number }
 export type Vocab = { shells: string[]; cameras: string[]; engines: string[]; segments: string[] };
 export type RenderRequest = { clip_ids?: string[]; overwrite?: boolean; from_proxy?: boolean; formats?: string[]; mp4_quality?: string; stills?: boolean; force?: boolean };

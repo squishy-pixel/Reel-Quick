@@ -446,7 +446,7 @@ export default function App() {
               {selectedClip && <button className="btn small" onClick={() => jumpTo(selectedClip.in_frame)}>Go to in</button>}</div>
             <ClipList clips={project.clips} info={info!} selected={selected} onSelect={setSelected} onPatch={patchClip} onDelete={deleteClip} onSeek={jumpTo} onExport={(id, o) => startRender([id], o)} renderRows={renderRows}
               keys={{ in: showKey(bindings.mark_in || undefined), out: showKey(bindings.mark_out || undefined), add: showKey(bindings.add_clip || undefined) }}
-              phaseOfClip={(c) => clipPhase(project, c)} />
+              phaseOfClip={(c) => clipPhase(project, c)} copyOk={ws!.stream_copy_ok} />
             </div>
             <div>
               {selectedClip && <ClipEditor clip={selectedClip} info={info!} frame={frame} vocab={state.vocab} autoPhase={phaseOf(project, selectedClip.in_frame)} onPatch={(p) => patchClip(selectedClip.id, p)} onSeek={jumpTo} onSay={say} />}

@@ -167,7 +167,7 @@ def _list_dir(path: str | None) -> dict:
                 size = 0 if is_dir else child.stat().st_size
             except OSError:
                 continue
-            if not is_dir and child.suffix.lower() not in (".mxf", ".mov", ".mp4", ".mkv", ".mts", ".m2ts", ".avi", ".csv"):
+            if not is_dir and child.suffix.lower() not in (".mxf", ".mov", ".mp4", ".m4v", ".mkv", ".webm", ".ts", ".mts", ".m2ts", ".avi", ".csv", ".json"):
                 continue
             entries.append({"name": child.name, "path": str(child), "dir": is_dir, "size": size})
     except PermissionError:
@@ -601,6 +601,15 @@ def create_app(session: Session | None = None) -> FastAPI:
         if not w.has_proxy():
             raise HTTPException(404, "no proxy yet")
         return FileResponse(w.proxy_path, media_type="video/mp4", headers={"Cache-Control": "no-cache"})
+
+    @app.get("/media/source")
+    def source_media():
+        """The recording itself, when the player can show it (Workspace.source_playable), Range-capable."""
+        w = ws()
+        if not w.source_playable():
+            raise HTTPException(404, "the recording cannot be played directly; build a proxy")
+        mt = "video/quicktime" if w.source.suffix.lower() == ".mov" else "video/mp4"
+        return FileResponse(w.source, media_type=mt, headers={"Cache-Control": "no-cache"})
 
     @app.get("/media/proxy/{name}")
     def proxy_hls(name: str):

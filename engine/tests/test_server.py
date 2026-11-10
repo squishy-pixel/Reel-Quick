@@ -1,3 +1,4 @@
+import subprocess
 import time
 from pathlib import Path
 
@@ -342,3 +343,32 @@ def test_render_refuses_when_the_destination_is_too_full(client, monkeypatch):
     # the user can still insist
     job = client.post("/api/jobs/render", json={"force": True}).json()
     assert _wait(client, job["id"])["status"] == "done"
+
+
+def test_a_downloaded_game_plays_without_a_proxy(tmp_path):
+    """An H.264 MP4 (a game downloaded to study, say) goes to the player as it is, so marking can start at
+    once; the broadcast MXF still needs its proxy. Stream copy is flagged as unavailable on long-GOP files."""
+    from reelquick.ffmpeg import ffmpeg_bin
+    from reelquick.server import create_app
+    from reelquick.workspace import Session
+    mp4 = tmp_path / "mnf.mp4"
+    subprocess.run([ffmpeg_bin(), "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=60000/1001",
+                    "-f", "lavfi", "-i", "sine=r=48000", "-t", "3", "-map", "0:v", "-map", "1:a", "-c:v", "libx264",
+                    "-g", "60", "-pix_fmt", "yuv420p", "-c:a", "aac", "-movflags", "+faststart", str(mp4)], check=True)
+    c = TestClient(create_app(Session(tmp_path / "work")))
+    ws = c.post("/api/open", json={"path": str(mp4)}).json()["workspace"]
+    assert ws["proxy_url"] == "/media/source" and ws["playing_source"] and ws["proxy_complete"]
+    assert ws["stream_copy_ok"] is False and abs(ws["proxy_available_seconds"] - 3.0) < 0.1
+    r = c.get("/media/source", headers={"Range": "bytes=0-99"})
+    assert r.status_code == 206 and len(r.content) == 100
+    # a proxy, once built, takes over from the source
+    job = c.post("/api/jobs/proxy", json={"height": 180}).json()
+    assert _wait(c, job["id"])["status"] == "done"
+    ws = c.get("/api/state").json()["workspace"]
+    assert ws["proxy_url"] == "/media/proxy/index.m3u8" and not ws["playing_source"]
+
+
+def test_the_broadcast_mxf_still_needs_a_proxy(client):
+    ws = client.get("/api/state").json()["workspace"]
+    assert ws["proxy_url"] is None and not ws["playing_source"] and ws["stream_copy_ok"] is True
+    assert client.get("/media/source").status_code == 404

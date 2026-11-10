@@ -64,6 +64,7 @@ h2 { font-size: 11px; color: var(--grey); letter-spacing: 0.16em; }
 input.text, select.text { background: var(--off-black); border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 7px; min-width: 0; color: var(--off-white); }
 input.text:focus, select.text:focus { outline: none; border-color: var(--yellow); }
 .chip { display: inline-flex; align-items: center; padding: 1px 7px; border: 1px solid var(--line); border-radius: var(--radius); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; user-select: none; color: var(--grey); }
+.chip.disabled { opacity: 0.35; cursor: not-allowed; text-decoration: line-through; }
 .chip.on { background: var(--yellow); border-color: var(--yellow); color: var(--off-black); font-weight: 700; }
 .kbd { display: inline-block; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 3px; padding: 0 5px; font-size: 10px; color: var(--grey); font-family: var(--mono); }
 
