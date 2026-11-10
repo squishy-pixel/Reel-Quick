@@ -176,6 +176,27 @@ class Reader:
             return "", 0.0
         return res[0][1], float(res[0][2])
 
+    def read_many(self, imgs: np.ndarray, box: list[int], alpha: str, chunk: int = 128):
+        """The same box in many crops, read in one recognition call per chunk: the crops are stacked into
+        one tall image and each crop's box is passed as its own line, so the recogniser batches them on the
+        GPU instead of being called once per box."""
+        out = []
+        x0, y0, x1, y1 = box
+        h = imgs.shape[1]
+        for i in range(0, len(imgs), chunk):
+            part = imgs[i:i + chunk]
+            tall = part.reshape(-1, part.shape[2])
+            boxes = [[x0, x1, k * h + y0, k * h + y1] for k in range(len(part))]
+            res = self.r.recognize(tall, horizontal_list=boxes, free_list=[], allowlist=alpha, detail=1,
+                                   paragraph=False, batch_size=len(boxes))
+            # one result per box, in box order (EasyOCR keeps the order of horizontal_list)
+            got = {}
+            for b, s, c in res:
+                k = int(round(min(p[1] for p in b))) // h
+                got[k] = (s, float(c))
+            out += [got.get(k, ("", 0.0)) for k in range(len(part))]
+        return out
+
 
 def locate(path: str, info: dict, rd: Reader, n: int = 120) -> dict:
     """Find the quarter and clock boxes: median boxes of quarter tokens with a clock to their right."""
@@ -219,22 +240,73 @@ def locate(path: str, info: dict, rd: Reader, n: int = 120) -> dict:
 
 def cmd_scan(a):
     cache = Path(a.cache)
-    out = cache / f"bug-{a.game}.json"
+    out = cache / f"bug-{a.out_game or a.game}.json"
     info = probe(a.recording)
     rd = Reader()
     loc = locate(a.recording, info, rd)
     print(f"bug located from {loc['sightings']} sightings: crop {loc['crop']}", flush=True)
-    rows = []
-    for idx, fr in keyframes(a.recording, tuple(loc["crop"]), info["start"]):
-        for i, img in zip(idx, fr):
-            qt, qc = rd.read(img, loc["quarter_box"], QUARTER_ALPHA)
-            ct, cc = rd.read(img, loc["clock_box"], CLOCK_ALPHA)
-            rows.append([int(i), qt, round(qc, 3), ct, round(cc, 3)])
-        print(f"  {len(rows)} keyframes, at frame {int(idx[-1])}", flush=True)
+    if a.slow:
+        rows = []
+        for idx, fr in keyframes(a.recording, tuple(loc["crop"]), info["start"]):
+            for i, img in zip(idx, fr):
+                qt, qc = rd.read(img, loc["quarter_box"], QUARTER_ALPHA)
+                ct, cc = rd.read(img, loc["clock_box"], CLOCK_ALPHA)
+                rows.append([int(i), qt, round(qc, 3), ct, round(cc, 3)])
+            print(f"  {len(rows)} keyframes, at frame {int(idx[-1])}", flush=True)
+        read_n = len(rows)
+    else:
+        rows, read_n = scan_fast(a.recording, info, loc, rd)
     out.write_text(json.dumps({"recording": a.recording, **info, "locate": loc,
                                "columns": ["frame", "quarter_text", "quarter_conf", "clock_text", "clock_conf"],
-                               "rows": rows}), encoding="utf-8")
-    print(f"wrote {out} ({len(rows)} readings)")
+                               "mode": "slow" if a.slow else f"fast (every {SKIP}th keyframe, all near the bug)",
+                               "ocr_read": read_n, "rows": rows}), encoding="utf-8")
+    print(f"wrote {out} ({len(rows)} keyframes, {read_n} read by OCR)")
+
+
+SKIP = 4            # fast scan: read every SKIPth keyframe first ...
+FILL = 6            # ... then every keyframe within FILL keyframes of a first-pass reading that shows the bug
+
+
+def scan_fast(path: str, info: dict, loc: dict, rd: Reader):
+    """Decode every keyframe crop once (cheap), OCR every SKIPth, then every keyframe around the bug. Keyframes
+    not read get empty text, which the rules treat as "no bug", as before for keyframes without one."""
+    idx_all, crops = [], []
+    for idx, fr in keyframes(path, tuple(loc["crop"]), info["start"]):
+        idx_all.append(idx)
+        crops.append(fr.copy())
+    idx_all, crops = np.concatenate(idx_all), np.concatenate(crops)
+    n = len(idx_all)
+    print(f"  decoded {n} keyframe crops", flush=True)
+    text = [None] * n
+
+    def read(sel):
+        sel = [k for k in sel if text[k] is None]
+        if not sel:
+            return
+        qs = rd.read_many(crops[sel], loc["quarter_box"], QUARTER_ALPHA)
+        cs = rd.read_many(crops[sel], loc["clock_box"], CLOCK_ALPHA)
+        for k, (qt, qc), (ct, cc) in zip(sel, qs, cs):
+            text[k] = (qt, qc, ct, cc)
+
+    def bug_seen(k):
+        qt, _, ct, _ = text[k]
+        return (parse_quarter(qt) and parse_clock(ct) >= 0) or parse_state(qt, ct)
+    read(list(range(0, n, SKIP)))
+    print(f"  first pass: {sum(t is not None for t in text)} read", flush=True)
+    # fill around every hit, and keep filling while new hits turn up at the edge of a filled stretch
+    todo = [k for k in range(0, n, SKIP) if bug_seen(k)]
+    while todo:
+        near = sorted({j for k in todo for j in range(max(0, k - FILL), min(n, k + FILL + 1))})
+        fresh = [j for j in near if text[j] is None]
+        read(fresh)
+        todo = [j for j in fresh if bug_seen(j)]
+    read_n = sum(t is not None for t in text)
+    print(f"  after filling: {read_n} read", flush=True)
+    rows = []
+    for k in range(n):
+        qt, qc, ct, cc = text[k] or ("", 0.0, "", 0.0)
+        rows.append([int(idx_all[k]), qt, round(qc, 3), ct, round(cc, 3)])
+    return rows, read_n
 
 
 # ---------------------------------------------------------------------------------------- phases
@@ -385,6 +457,16 @@ def phases(fr, q, c, shows: dict | None = None):
             else:
                 ev[k]["show"] = "not found: the clock's 0:00 is given instead"
                 conf[k] = 0.3
+        # the second half starts when the game crew comes back after the halftime break, before the kick
+        r = shows.get("second_half_kickoff")
+        if out["second_half_kickoff"] is not None:
+            ev["second_half_kickoff"]["kick"] = out["second_half_kickoff"]
+            if r and (out["half_start"] is None or r["start"] > out["half_start"]):
+                ev["second_half_kickoff"]["return"] = r
+                out["second_half_kickoff"] = r["start"]
+            else:
+                ev["second_half_kickoff"]["return"] = "not found: the kick is given instead"
+                conf["second_half_kickoff"] = min(conf["second_half_kickoff"], 0.5)
     # program order must hold; a boundary out of order is dropped rather than guessed
     order = ["kickoff", "half_start", "second_half_kickoff", "game_end"]
     prev = -1
@@ -419,7 +501,9 @@ def cmd_phases(a):
             rows = [("kickoff", res["kickoff"], "kickoff"),
                     ("half 0:00", ev["half_start"].get("clock_zero", res["half_start"]), "half_clock0"),
                     ("half_start (show)", res["half_start"], "half_show"),
-                    ("second_half_kickoff", res["second_half_kickoff"], "second_half_kickoff"),
+                    ("2nd-half kick", ev["second_half_kickoff"].get("kick", res["second_half_kickoff"]),
+                     "second_half_kickoff"),
+                    ("second_half (return)", res["second_half_kickoff"], "second_half_return"),
                     ("end 0:00", ev["game_end"].get("clock_zero", res["game_end"]), "end_clock0"),
                     ("game_end (show)", res["game_end"], "post_show")]
             for k, v, tk in rows:
@@ -472,13 +556,42 @@ def find_show(path: str, rd: Reader, zero_frame: int, word: str) -> dict | None:
     return None
 
 
+RETURN_BACK = 10 * 60       # s before the second-half kick to look for the end of the halftime break
+
+
+def find_return(path: str, kick_frame: int) -> dict | None:
+    """Start of the game crew's second-half coverage: the frame after the last black frame before the kick.
+    TJ: the crews hand over in a commercial break, and the game crew comes back before the kick (the score
+    into the 3rd quarter, Prime Stories), so the second half starts when the halftime break ends."""
+    t_end = kick_frame / FPS
+    t0 = max(0.0, t_end - RETURN_BACK)
+    bt, bf = window_frames(path, t0, t_end - t0, fps=30, w=160, h=90)
+    y = bf.reshape(len(bf), -1).astype(np.float32)
+    black = np.where((np.median(y, 1) < 20) & (y.std(1) < 8))[0]
+    if not len(black):
+        return None
+    start = bt[black[-1]] + 1 / 30
+    return {"start": int(round(start * FPS)), "kick": kick_frame, "black": int(round(bt[black[-1]] * FPS)),
+            "how": "after the last black frame before the kick (end of the halftime break)",
+            "lead_s": round(t_end - start, 1)}
+
+
 def cmd_shows(a):
     """Find the halftime and postgame shows' starts; writes shows-<game>.json, which phases then uses."""
     cache = Path(a.cache)
     d, fr, q, c = load_readings(cache, a.game)
-    _, _, ev = phases(fr, q, c, shows=None)
-    rd = Reader()
+    clock, _, ev = phases(fr, q, c, shows=None)
     out = {}
+    if clock["second_half_kickoff"] is not None:
+        out["second_half_kickoff"] = find_return(d["recording"], clock["second_half_kickoff"])
+        print("second_half_kickoff", out["second_half_kickoff"], flush=True)
+    if a.only_return:
+        old = cache / f"shows-{a.game}.json"
+        prev = json.loads(old.read_text(encoding="utf-8")) if old.exists() else {}
+        prev.update(out)
+        old.write_text(json.dumps(prev, indent=1), encoding="utf-8")
+        return
+    rd = Reader()
     for k, word in SHOW_WORDS.items():
         z = ev[k].get("first_zero") or ev[k].get("first_state")
         if z is None:
@@ -504,6 +617,8 @@ def main():
     s.add_argument("--recording", required=True)
     s.add_argument("--game", required=True)
     s.add_argument("--cache", required=True)
+    s.add_argument("--slow", action="store_true", help="read every keyframe, two OCR calls each (the old way)")
+    s.add_argument("--out-game", help="write the readings under this name instead of --game (for comparisons)")
     d = sub.add_parser("dump")
     d.add_argument("--game", required=True)
     d.add_argument("--cache", required=True)
@@ -512,6 +627,8 @@ def main():
     w = sub.add_parser("shows", help="find the halftime / postgame show starts (after scan; before phases)")
     w.add_argument("--game", required=True)
     w.add_argument("--cache", required=True)
+    w.add_argument("--only-return", action="store_true",
+                   help="only (re)find the second half's start and merge it into an existing shows file")
     f = sub.add_parser("phases")
     f.add_argument("--game", required=True)
     f.add_argument("--cache", required=True)

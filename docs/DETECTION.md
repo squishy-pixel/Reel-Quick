@@ -76,7 +76,9 @@ overrides when needed:
   following the 2nd quarter's 0:00. The game crew hands over to the
   pre/half/post crew in that break, so the coverage between 0:00 and the
   break is still `game` (TJ, November 2026).
-- Second-half kickoff: the first frames of the 3rd quarter.
+- Second half: starts when the game crew comes back after the halftime
+  break, before the kick. The score into the 3rd quarter and Prime Stories
+  come before the kick and are `game` (TJ, November 2026).
 - End of game: likewise, `post` starts with the postgame show after the
   first break following the last quarter's (or overtime's) 0:00.
 
@@ -116,8 +118,11 @@ and ignored, so the detector can add evidence freely.
 Any boundary not found is `null`. `half_start` is the first frame of the
 halftime show and `game_end` the first frame of the postgame show, each
 after the commercial break that follows the clock's 0:00; the 0:00 frames
-are in `evidence` (`clock_zero`). The app treats these as suggestions: a boundary the
-operator has set by hand is never overwritten.
+are in `evidence` (`clock_zero`). `second_half_kickoff` keeps its name but
+is the start of the second half's game coverage: the first frame after the
+halftime break, before the kick. The kick itself is in `evidence`
+(`kick`). The app treats these as suggestions: a boundary the operator has
+set by hand is never overwritten.
 
 **Candidate segments** (`<game>.candidates.json`), for step 4:
 
@@ -718,6 +723,13 @@ between restarts, so look the drive up by name.
    boundary is the frame after it. Without a black frame it would take the
    title minus 6 s, but every case so far had one. A show not found leaves
    the 0:00 with confidence 0.3. Results go in `shows-<game>.json`.
+5. **The second half starts with the game crew's return** (same `shows`
+   step). From the second-half kick it reads back up to 10 min at 30 frames
+   a second, takes the last black frame (the end of the halftime break),
+   and starts the second half on the next frame. Found 93–131 s before the
+   kick on all four games. In each, the break's last ad is a "Monday / Sunday
+   games" schedule card, then black, then the same few-second open (a
+   phone-camera rig) and the teams coming out of the tunnel.
 
 ### Results
 
@@ -730,27 +742,30 @@ and a 0:00 is the frame the clock reaches 0:00, both accurate to about
 | WK04 | kickoff | 279090 | 279090 | 0.0 s |
 | | 2nd quarter 0:00 | 578970 | 578950 | +0.3 s |
 | | **half_start** (halftime show) | 591807 | 591807 | within 0.75 s |
-| | second_half_kickoff | 631170 | 631130 | +0.7 s |
+| | **second_half_kickoff** (crew's return) | 625452 | 625452 | within 1.5 s |
+| | 2nd-half kick | 631170 | 631130 | +0.7 s |
 | | 4th quarter 0:00 | 932220 | 932200 | +0.3 s |
 | | **game_end** (postgame show) | 951049 | 951049 | within 0.75 s |
 | WK06 | kickoff | 280680 | 280610 | +1.2 s |
 | | 2nd quarter 0:00 | 562320 | 562250 | +1.2 s |
 | | **half_start** (halftime show) | 576114 | 576114 | within 0.75 s |
-| | second_half_kickoff | 612360 | 612350 | +0.2 s |
+| | **second_half_kickoff** (crew's return) | 606786 | 606786 | within 1.5 s |
+| | 2nd-half kick | 612360 | 612350 | +0.2 s |
 | | 4th quarter 0:00 | 926280 | 926250 | +0.5 s |
 | | **game_end** (postgame show) | 936987 | 936987 | within 0.75 s |
 | WK11 (720p) | kickoff | 347860 | 347830 | +0.5 s |
 | | 2nd quarter 0:00 | 622750 | 622690 | +1.0 s |
 | | **half_start** (halftime show) | 635523 | 635523 | within 0.75 s |
-| | second_half_kickoff | 678550 | not shown | — |
+| | **second_half_kickoff** (crew's return) | 670678 | 670678 | within 1.5 s |
+| | 2nd-half kick | 678550 | not shown | — |
 | | 4th quarter 0:00 | 958000 | 957840 | +2.7 s |
 | | **game_end** (postgame show) | 969277 | 969277 | within 0.75 s |
 
-- **The show starts were checked, not measured independently.** I looked
-  at sheets 0.75 s apart around each detected start. All six fall on the
-  cut from the break's last black frame to the show's open, so the truth
-  column repeats the detected frame and "within 0.75 s" is the check's
-  resolution.
+- **The show starts and returns were checked, not measured
+  independently.** I looked at sheets 0.75 s (shows) and 1.5 s (returns)
+  apart around each detected start. Every one falls on the cut from the
+  break's last black frame, so the truth column repeats the detected frame
+  and the "within" figure is the check's resolution.
 - **The clock boundaries: all 11 that can be checked are within 2.7 s, and
   8 within 1 s.** The worst is WK11's final 0:00: at 720p the bug's 0:00
   was never read, so the first FINAL stands in. Its confidence is 0.7.
@@ -826,6 +841,164 @@ alarms, camera 5 / 6 with 6).
 - **`in_frame` / `out_frame`** are the first and last keyframe samples of
   the span (±1 s), not yet refined to the cut. `strength` is the span's
   peak z. An extra `samples` field gives the span's length in samples.
+
+## Findings: TB at DAL (this season)
+
+The whole pipeline run on this season's TB at DAL (2026 WK05), November
+2026, with the library (300 clips, all from last season) and the reject set
+as they were. The game is named `2026WK05-TBvsDAL`. Both files are in the
+game's work folder and the detection-eval folder.
+
+### Input and timings
+
+- **The proxy, not the MXF.** The MXF is attached (660 GB, H.264 4:2:2
+  Intra, HLG), but every frame is a keyframe, so a keyframe scan would
+  decode all 1.29 million frames in HDR. The game's `proxy.mp4` is SDR
+  (through the broadcast LUT), 1080p, with a keyframe every second and the
+  same frame numbering (frame N = MXF frame N). That matches the reduced
+  SDR copies the library and the earlier tests used. 21,433 keyframes.
+- **The library catalogue** still points at `F:`; the drive is `I:` on this
+  boot. The run used a remapped copy (`library-I.json` in detection-eval);
+  the catalogue itself is unchanged.
+
+| Step | Time | Note |
+|---|---|---|
+| `phase_eval.py scan` | 22.5 min | old reader; shared the GPU with scoring |
+| `phase_eval.py shows` | 76 s | |
+| `phase_eval.py phases` | < 1 s | |
+| `shell_eval.py score` | 21.7 min | shared the GPU; includes reference frames from all 300 clips (cached now) |
+| `shell_eval.py candidates` | 2 s | |
+
+Run one after the other, each would be faster. With the faster reader
+(next section) the bug scan took 4.1 min on WK04, so a game should take
+under half an hour, mostly shell scoring.
+
+### Faster bug scan
+
+`phase_eval.py scan` now:
+
+1. **Decodes every keyframe's bug crop once** (190 × 40 px each, cheap).
+2. **Reads many crops in one OCR call.** The crops are stacked into one
+   tall image and each one's box is passed as a line, so EasyOCR batches
+   them on the GPU. That is two calls (quarter box, clock box) per 128
+   keyframes, instead of two per keyframe. The two boxes keep separate
+   alphabets, since one shared alphabet would let the clock box read
+   letters. On 300 WK06 crops this was 14× faster than per-box calls, with
+   identical text for every crop.
+3. **Skips ahead, then fills in.** It reads every 4th keyframe first, then
+   every keyframe within 6 of a reading that shows the bug (quarter and
+   clock, or HALF / FINAL). It repeats while new hits turn up at the edge
+   of a filled stretch, so every stretch with the bug is read in full, and
+   the first and last sightings (which set the boundaries) are exact.
+
+`--slow` keeps the old reader.
+
+**Re-check on WK04**, with the same rules and the same show starts:
+
+| | Old reader | New reader |
+|---|---|---|
+| kickoff | 279090 | 279090 |
+| 2nd quarter 0:00 | 578970 | 578970 |
+| second_half_kickoff | 631170 | 631170 |
+| 4th quarter 0:00 | 932220 | 932220 |
+| bug sightings | 4,540 | 4,474 |
+| keyframes OCR'd | 17,308 | 9,590 |
+| time | about 12 min, sharing the GPU (not timed alone) | **4.1 min**, alone |
+
+Every boundary and confidence is identical. The sightings the new reader
+lacks are isolated misreads among the keyframes it skips far from the bug,
+which the rules already discarded.
+
+### Phase boundaries
+
+The bug was found where it sat last season (same crop to the pixel), so
+this season's package keeps its layout. Checked on sheets as before:
+
+| Boundary | Detected | True | Off |
+|---|---|---|---|
+| kickoff | 398968 | 399000 | −0.5 s |
+| 2nd quarter 0:00 | 693718 | 693670 | +0.8 s |
+| **half_start** (halftime show) | 713392 | on the cut | within 0.75 s |
+| **second_half_kickoff** (crew's return) | 745800 | on the cut | within 1.5 s |
+| 2nd-half kick | 751468 | 751530 | −1.0 s |
+| 4th quarter 0:00 | 1057318 | 1057130 | +3.1 s |
+| **game_end** (postgame show) | 1070864 | on the cut | within 0.75 s |
+
+- **The final 0:00 was not read.** Only one keyframe shows it, so the
+  first FINAL stands in, 3.1 s late, as on WK11. That only matters for the
+  `clock_zero` evidence: `game_end` is the postgame show, which is right.
+  Its confidence stays at 0.7, inherited from the 0:00.
+- **The truth is coarser than last time** for the 0:00s: about ±1 s, read
+  off sheets at 1.5 and 3 s steps.
+
+**The second half starts with the game crew's return.** TJ's clips
+`05_Score_Drone` (747641) and `06_Prime-Stories_SkyCam` (748139) run from
+63 s before the kick. TJ confirmed they are `game`, so the second half now
+starts at the end of the halftime break (745800, 95 s before the kick).
+
+### Candidates
+
+57 candidates (51 shell, 4 booth, 2 close-up), threshold z 5.3.
+
+**There is no answer key yet.** The tech's log for this game is not on
+this machine: not in the repo, the work folders, Downloads, Documents,
+Desktop or `G:` / `I:`. Only `docs/log-template.csv` turned up. So there
+is no found / missed / false-alarm count per shell. What there is:
+
+1. **All 57 looked at by eye** (a frame from the middle of each):
+
+| What it is | pre | 1st half | half | 2nd half | post | Total |
+|---|---|---|---|---|---|---|
+| Our graphic, right label | 5 | 1 | | | 2 | 8 |
+| Our graphic, wrong label | 5 | | | 6 | | 11 |
+| Booth | 3 | 1 | | | | 4 |
+| Close-up (fan, coach) | 1 | | | | 1 | 2 |
+| Scenic (stadium aerial) | 1 | | | | | 1 |
+| Network packaging and promos | 1 | 1 | | 3 | 2 | 7 |
+| Plain footage | 2 | 1 | | | | 3 |
+| Postgame crew on the field | | | | | 20 | 20 |
+| Unclear (rendered stadium) | 1 | | | | | 1 |
+
+   - **Right label:** Standings (3, including the coaches-and-table layout),
+     Who Ya Got (2), In The Know (2), Wingstop.
+   - **Wrong label:** Prime Stories (6 spans, labelled Standings / Repurposed
+     Shell / Schedules); Single Page Story (2; no such shell in the
+     library); a "Coming Up" graphic (2, labelled Standings and Wingstop); a
+     Who Ya Got labelled Standings.
+   - **Packaging:** the TNF fireworks-over-a-city open, "Only on Prime",
+     the postgame tease, a Bucs–Cowboys city animation, a Roger Staubach
+     promo, a Prime Original promo.
+
+2. **The 6 clips TJ cut from this game** (in its project file):
+
+| Clip | Result |
+|---|---|
+| 01 Standings (137132) | found, right label |
+| 02 Single Page Story (199328) | found, labelled Repurposed Shell / Prime Stories (shell not in the library) |
+| 03 Booth (483324) | missed narrowly: every sample labelled Booth, strength 5.0–5.4 against 5.3, only one sample over |
+| 04 Wingstop (640626) | found, right label |
+| 05 Score, drone (747641) | missed: labelled Scenic Comp, strength 2.5 |
+| 06 Prime Stories (748139) | found as 6 spans, labelled Standings: its own shell reaches 7.1, Standings 6.4 |
+
+**What this game shows:**
+
+- **Our graphics are found, but named poorly.** 19 of the 57 are our
+  graphics. Only 8 carry the right name. This season's shells (Prime
+  Stories, Coming Up, Single Page Story) differ from last season's library,
+  and the AR shells share one frame (the arched panels over the field), so
+  the matcher falls back on Standings. **Adding this season's confirmed
+  clips to the library (step 7) is the fix**, and each game will help the
+  next.
+- **The postgame crew standing on the field gives 20 false alarms**, all
+  labelled Player Card, in one 25-minute stretch. Detection inside `post`
+  needs a "studio crew" reject class, or a higher bar there.
+- **The network's new packaging gets through the reject set** (7). The set
+  was built from last season's WK04, so this season's open and promos need
+  adding, a few frames each.
+- **Booth is close to the threshold.** It is found 4 times, but TJ's Booth
+  clip missed by a hair. Not checked whether the booth backdrop changed
+  between seasons; this season's Booth clips in the library would settle
+  it.
 
 ## Order of work
 
