@@ -854,9 +854,45 @@ game's work folder and the detection-eval folder.
 | `shell_eval.py score` | 21.7 min | shared the GPU; includes reference frames from all 300 clips (cached now) |
 | `shell_eval.py candidates` | 2 s | |
 
-Run one after the other, each would be faster. With the new reader (below)
-the bug scan is a few minutes, so a game takes about half an hour, mostly
-shell scoring.
+Run one after the other, each would be faster. With the faster reader
+(next section) the bug scan took 4.1 min on WK04, so a game should take
+under half an hour, mostly shell scoring.
+
+### Faster bug scan
+
+`phase_eval.py scan` now:
+
+1. **Decodes every keyframe's bug crop once** (190 × 40 px each, cheap).
+2. **Reads many crops in one OCR call.** The crops are stacked into one
+   tall image and each one's box is passed as a line, so EasyOCR batches
+   them on the GPU. That is two calls (quarter box, clock box) per 128
+   keyframes, instead of two per keyframe. The two boxes keep separate
+   alphabets, since one shared alphabet would let the clock box read
+   letters. On 300 WK06 crops this was 14× faster than per-box calls, with
+   identical text for every crop.
+3. **Skips ahead, then fills in.** It reads every 4th keyframe first, then
+   every keyframe within 6 of a reading that shows the bug (quarter and
+   clock, or HALF / FINAL). It repeats while new hits turn up at the edge
+   of a filled stretch, so every stretch with the bug is read in full, and
+   the first and last sightings (which set the boundaries) are exact.
+
+`--slow` keeps the old reader.
+
+**Re-check on WK04**, with the same rules and the same show starts:
+
+| | Old reader | New reader |
+|---|---|---|
+| kickoff | 279090 | 279090 |
+| 2nd quarter 0:00 | 578970 | 578970 |
+| second_half_kickoff | 631170 | 631170 |
+| 4th quarter 0:00 | 932220 | 932220 |
+| bug sightings | 4,540 | 4,474 |
+| keyframes OCR'd | 17,308 | 9,590 |
+| time | about 12 min, sharing the GPU (not timed alone) | **4.1 min**, alone |
+
+Every boundary and confidence is identical. The sightings the new reader
+lacks are isolated misreads among the keyframes it skips far from the bug,
+which the rules already discarded.
 
 ### Phase boundaries
 
