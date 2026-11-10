@@ -172,6 +172,19 @@ def export_log_cmd(game_folder, out_dir) -> None:
         click.echo(f"{name}: {d['rows']} rows  {d['path']}")
 
 
+@main.command("season-report")
+@click.option("--work", default=None, type=click.Path(file_okay=False), help="Work folder holding the games (default ~/Videos/ReelQuick).")
+@click.option("--out", default=None, type=click.Path(dir_okay=False), help="Report file (default: in the work folder).")
+def season_report_cmd(work, out) -> None:
+    """Count every game in the work folder: ours against everyone else's, by shell, segment and week."""
+    from .season import default_report_path, season_report
+    from .workspace import default_work_root
+    root = Path(work) if work else default_work_root()
+    r = season_report(root, Path(out) if out else default_report_path(root))
+    click.echo(f"{r['games']} games, {r['clips']} clips: {r['ours']} ours, {r['others']} others'  ({', '.join(r['seasons'])})")
+    click.echo(r["path"])
+
+
 @main.command("library")
 @click.argument("clips_folder", type=click.Path(exists=True, file_okay=False))
 @click.argument("out_dir", type=click.Path(file_okay=False))

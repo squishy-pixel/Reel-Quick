@@ -78,6 +78,7 @@ export const api = {
   startFilmstrip: (b: { interval?: number; width?: number; force?: boolean }) => call<Job>("POST", "/api/jobs/filmstrip", b),
   startProxy: (b: { height?: number; bitrate?: string }) => call<Job>("POST", "/api/jobs/proxy", b),
   startRender: (b: RenderRequest) => call<Job>("POST", "/api/jobs/render", b),
+  exportLog: () => call<Record<"Girraphic" | "Other Content", { path: string; rows: number }>>("POST", "/api/export/log"),
   estimate: (b: RenderRequest) => call<SpaceEstimate>("POST", "/api/render/estimate", b),
   setPhases: (values: Partial<Record<BoundaryKey, number | null>>) => call<AppState>("PUT", "/api/phases", { values }),
   importCandidates: (data: unknown) => call<AppState & { added: number; already_decided: number }>("POST", "/api/candidates/import", { data }),

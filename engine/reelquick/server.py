@@ -812,6 +812,17 @@ def create_app(session: Session | None = None) -> FastAPI:
         except OSError as e:
             raise HTTPException(500, f"could not write the log: {e}")
 
+    @app.post("/api/season/report")
+    def season_report_ep():
+        """The season report across every game in the work folder, written next to the games' outputs."""
+        from .season import default_report_path, season_report
+        prefs = load_prefs(session.work_root)
+        base = Path(prefs.get("output_root") or session.work_root)
+        try:
+            return season_report(session.work_root, default_report_path(base))
+        except OSError as e:
+            raise HTTPException(500, f"could not write the report: {e}")
+
     @app.post("/api/render/estimate")
     def render_estimate(body: RenderBody):
         """What a render would take on disk, and whether its destination has room. Same body as the render."""

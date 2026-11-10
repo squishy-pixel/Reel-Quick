@@ -441,3 +441,34 @@ def test_export_log_splits_ours_from_everyone_elses(client, tmp_path):
     assert standings["Segment"] == "1st Half" and standings["Duration (s)"] == 1.0 and standings["Whose"] == "Girraphic"
     other = dict(zip(*list(load_workbook(r["Other Content"]["path"])["Log"].iter_rows(values_only=True))))
     assert other["Segment"] == "2nd Half" and other["Whose"] == "NBC design" and other["Source"] == "user"
+
+
+def test_season_report_counts_every_game(client, tmp_path):
+    import json
+    from openpyxl import load_workbook
+    from reelquick.season import season_of
+    assert season_of("261008") == "2026" and season_of("270114") == "2026" and season_of("250918") == "2025"
+    client.put("/api/game", json={"date": "261008", "week": "WK06", "away": "TB", "home": "DAL"})
+    client.put("/api/phases", json={"values": {"kickoff": 100, "half_start": 200, "second_half_kickoff": 250}})
+    client.post("/api/clips", json={"in_frame": 120, "out_frame": 180, "shell": "Match-Up", "prefill": False})   # 1 s, ours
+    b = client.post("/api/clips", json={"in_frame": 260, "out_frame": 290, "shell": "Standings", "prefill": False}).json()["clip"]
+    client.patch(f"/api/clips/{b['id']}", json={"whose": "other"})
+    # two more games beside it: the Wild Card game in January (same season) and one from last season
+    work = Path(client.get("/api/state").json()["work_root"])
+    proj = json.loads(next(work.glob("*/project.reelquick.json")).read_text())
+    for folder, d, wk in (("wildcard", "270114", "WC"), ("lastyear", "250918", "WK03")):
+        p = json.loads(json.dumps(proj))
+        p["game"] = {"date": d, "week": wk, "away": "GB", "home": "CHI"}
+        (work / folder).mkdir()
+        (work / folder / "project.reelquick.json").write_text(json.dumps(p))
+    r = client.post("/api/season/report").json()
+    assert r["games"] == 3 and r["clips"] == 6 and r["ours"] == 3 and r["seasons"] == ["2025", "2026"]
+    wb = load_workbook(r["path"])
+    summary = {row[0]: row for row in wb["Summary"].iter_rows(min_row=2, values_only=True)}
+    assert summary["2026"][1:4] == (2, 2, 2) and summary["2025"][1:4] == (1, 1, 1) and summary["All"][1] == 3
+    assert summary["2026"][5] == round(2 * 1.0 / 60, 1)                    # two 1-second clips of ours on air
+    by_game = list(wb["By game"].iter_rows(min_row=2, values_only=True))
+    assert [g[1] for g in by_game] == ["250918", "261008", "270114"]        # week to week, in date order
+    head = [c.value for c in wb["By game"][1]]
+    assert by_game[1][head.index("Ours 1st Half")] == 1 and by_game[1][head.index("Ours 2nd Half")] == 0
+    assert wb["All clips"].max_row == 7

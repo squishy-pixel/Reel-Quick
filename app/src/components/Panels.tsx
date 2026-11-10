@@ -157,9 +157,9 @@ export function BroadcastPanel({ project, frame, tcOf, onSet, onSeek, onImport }
   );
 }
 
-export function RenderPanel({ job, clipCount, missingStills, selectedId, outDir, space, onRender, onRenderSelected, onCancel, onPickOut, onReveal }: {
+export function RenderPanel({ job, clipCount, missingStills, selectedId, outDir, space, onRender, onRenderSelected, onCancel, onPickOut, onReveal, onExportLog }: {
   job?: Job; clipCount: number; missingStills: number; selectedId: string | null; outDir: string; space: SpaceEstimate | null;
-  onRender: () => void; onRenderSelected: () => void; onCancel: () => void; onPickOut: () => void; onReveal: () => void;
+  onRender: () => void; onRenderSelected: () => void; onCancel: () => void; onPickOut: () => void; onReveal: () => void; onExportLog: () => void;
 }) {
   const running = job?.status === "running";
   const rows: { id: string; name: string; status: string; progress: number; error?: string }[] = job?.detail?.clips ?? [];
@@ -196,6 +196,7 @@ export function RenderPanel({ job, clipCount, missingStills, selectedId, outDir,
           </>
         )}
         <span className="spacer" style={{ flex: 1 }} />
+        <button className="btn small" disabled={!clipCount} onClick={onExportLog} title="Write this game's log as two spreadsheets, Girraphic's and everyone else's, into its output folder">Export log</button>
         <button className="btn small" onClick={onReveal} title={outDir}>Open folder</button>
         <button className="btn small" onClick={onPickOut} title="Choose a different output folder">Folder…</button>
       </div>

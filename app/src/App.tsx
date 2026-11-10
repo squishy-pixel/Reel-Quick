@@ -511,6 +511,7 @@ export default function App() {
                 onRenderSelected={() => selected && startRender([selected])}
                 onCancel={() => renderJob && run(api.cancelJob(renderJob.id))}
                 onReveal={() => run(api.reveal(ws!.clips_dir))}
+                onExportLog={() => run(api.exportLog(), (r) => say(`Log written: ${r["Girraphic"].rows} Girraphic, ${r["Other Content"].rows} other, in the output folder`))}
                 onPickOut={async () => { const n = native(); if (n) { const p = await n.pick_folder(ws!.clips_dir); if (p) run(api.settings({ output_dir: p })); } else setDialog({ kind: "outdir" }); }} />
             </div>
           </>
