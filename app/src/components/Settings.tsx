@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { SpaceEstimate, Vocab } from "../api";
+import type { Job, SpaceEstimate, Vocab } from "../api";
 import { gb } from "../phases";
 import { ACTIONS, type ActionId, type Bindings, comboOf, isMac, showKey } from "../shortcuts";
 import { ListsPane } from "./Panels";
@@ -7,12 +7,14 @@ import { ListsPane } from "./Panels";
 type Tab = "general" | "shortcuts" | "lists";
 
 /** Application settings: keyboard shortcuts and the lists, with room for more pages (locations, defaults). */
-export function SettingsDialog({ initialTab, bindings, vocab, onSaveBindings, onSaveVocab, onClose, outputRoot, workRoot, gameFolder, space, onPickOutputRoot, onClearOutputRoot }: {
+export function SettingsDialog({ initialTab, bindings, vocab, onSaveBindings, onSaveVocab, onClose, outputRoot, workRoot, gameFolder, space, onPickOutputRoot, onClearOutputRoot, reelJob, onSeasonReport, onBuildReel, onReveal }: {
   initialTab?: Tab; bindings: Bindings; vocab: Vocab;
   onSaveBindings: (b: Bindings) => void; onSaveVocab: (v: Vocab) => void; onClose: () => void;
   outputRoot: string; workRoot: string; gameFolder: string; space: SpaceEstimate | null;
   onPickOutputRoot: () => void; onClearOutputRoot: () => void;
+  reelJob?: Job; onSeasonReport: () => void; onBuildReel: () => void; onReveal: (path: string) => void;
 }) {
+  const reelDir = `${outputRoot || workRoot}${(outputRoot || workRoot).includes("\\") ? "\\" : "/"}Reel`;
   const [tab, setTab] = useState<Tab>(initialTab ?? "general");
   return (
     <div className="modal-bg" onClick={onClose}>
@@ -38,6 +40,21 @@ export function SettingsDialog({ initialTab, bindings, vocab, onSaveBindings, on
                 {gameFolder && <p className="dim">This game: <span className="num">{gameFolder}</span></p>}
                 {space && <p className={space.fits ? "dim" : "accent"}>Rendering every clip of this game needs about {gb(space.bytes)}; {space.dest} has {gb(space.free)} free.</p>}
                 <p className="dim">A game can still have a folder of its own: Folder… in its Export panel.</p>
+              </section>
+              <section>
+                <h3>Season</h3>
+                <p className="dim">Both cover every game in the work folder. The report counts Girraphic's elements against everyone
+                  else's, by game, type and segment, with time on air. The web reel is a folder with a page that plays every clip on
+                  a computer or a phone: open its index.html, or upload the folder to a web host as it is. Rebuilding keeps games
+                  that have been archived, so seasons add up.</p>
+                <div className="actions-row">
+                  <button className="btn small" onClick={onSeasonReport}>Season report</button>
+                  <button className="btn small" onClick={onBuildReel} disabled={reelJob?.status === "running"}>Build web reel</button>
+                  <button className="btn small" onClick={() => onReveal(reelDir)}>Open reel folder</button>
+                </div>
+                {reelJob && <p className="dim">{reelJob.status === "running" ? `Web reel: ${Math.round(reelJob.progress * 100)}% · ${reelJob.detail?.clip ?? ""}`
+                  : reelJob.status === "done" ? `Web reel: ${reelJob.result?.clips} clips from ${reelJob.result?.games} game${reelJob.result?.games === 1 ? "" : "s"}; ${reelJob.result?.rendered} MP4s rendered${reelJob.result?.skipped?.length ? `; ${reelJob.result.skipped.length} skipped (no recording or proxy)` : ""}.`
+                  : `Web reel: ${reelJob.status}${reelJob.error ? `: ${reelJob.error.slice(0, 160)}` : ""}`}</p>}
               </section>
             </div>
           )}

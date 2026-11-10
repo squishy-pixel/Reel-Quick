@@ -87,6 +87,28 @@ or `high`. Slack and High files are named `_slack` / `_high`, so they sit
 beside the review MP4 instead of standing in for it. `reelquick cut
 --quality slack` does the same from the command line.
 
+**Logs, the season report and the web reel.** Three outputs carry the work
+beyond the app:
+
+- **Export log** (Export panel, or `reelquick export-log <game folder>`): two
+  spreadsheets per game, `<game> log - Girraphic.xlsx` and `<game> log - Other
+  Content.xlsx`. Same columns as the log template, plus file name, duration,
+  timecodes, phase, whose, and where each entry came from (detector, log or
+  user). What was confirmed in the app is the full record: the tech's log plus
+  everything it missed.
+- **Season report** (Settings → General, or `reelquick season-report`): every
+  game in the work folder counted in one workbook. Ours against everyone
+  else's, by game week to week, by shell and by segment, with time on air,
+  plus every clip on one sheet for pivots. A January or February game counts
+  in the season before.
+- **Web reel** (Settings → General, or `reelquick reel`): a folder,
+  `Reel/` under the output folder, with a page that plays every clip of every
+  game on a computer or a phone. Filter by season, game, type, segment and
+  whose, search, sort, watch and download. It needs no server: open
+  `index.html` from the disk or a shared drive, or upload the folder as it is
+  to any web host. Clips without a web MP4 get a Review MP4 rendered.
+  Rebuilding keeps games no longer in the work folder, so seasons accumulate.
+
 **Stream copy needs the original.** Copy (the `Original` chip) is frame
 accurate and near instant because every frame of the feed is a keyframe, but
 it is 10-bit 4:2:2 HLG that chat apps and phones will not play. Without the

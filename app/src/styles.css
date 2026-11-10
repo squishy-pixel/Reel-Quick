@@ -289,3 +289,4 @@ input.text:focus, select.text:focus { outline: none; border-color: var(--yellow)
 .candrow .line2 { display: flex; gap: 10px; align-items: center; color: var(--grey); font-size: 11px; margin-top: 3px; }
 .candrow .line3 { display: flex; gap: 4px; align-items: center; margin-top: 6px; flex-wrap: wrap; font-size: 11px; }
 .legend .sw.cand { height: 5px; border: 1px solid #3FD0E0; }
+.general .actions-row { display: flex; gap: 8px; flex-wrap: wrap; }

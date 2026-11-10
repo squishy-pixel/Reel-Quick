@@ -540,6 +540,10 @@ export default function App() {
         outputRoot={state.prefs.output_root} workRoot={state.work_root} space={space} gameFolder={ws?.clips_dir ?? ""}
         onPickOutputRoot={async () => { const n = native(); if (n) { const p = await n.pick_folder(state.prefs.output_root || state.work_root); if (p) run(api.prefs({ output_root: p }), () => say("Output folder saved")); } else setDialog({ kind: "outroot" }); }}
         onClearOutputRoot={() => run(api.prefs({ output_root: "" }), () => say("Clips go in each game's work folder again"))}
+        reelJob={[...state.jobs].reverse().find((j) => j.kind === "reel")}
+        onSeasonReport={() => run(api.seasonReport(), (r) => { say(`Season report: ${r.games} games, ${r.clips} clips (${r.ours} Girraphic, ${r.others} others')`); if (confirm(`Season report written:\n${r.path}\n\nOpen its folder?`)) api.reveal(r.path.replace(/[\\/][^\\/]*$/, "")).catch(() => {}); })}
+        onBuildReel={() => run(api.buildReel({}), (r) => say(`Building the web reel in ${r.out_dir}`))}
+        onReveal={(p) => run(api.reveal(p))}
         onSaveBindings={(b) => run(api.prefs({ shortcuts: overridesOf(b) }), () => say("Keyboard shortcuts saved"))}
         onSaveVocab={(v) => run(api.vocab(v), () => say("Lists saved"))} />}
       {dialog?.kind === "help" && (

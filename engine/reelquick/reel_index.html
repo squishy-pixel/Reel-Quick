@@ -43,7 +43,7 @@
   .actions { display: flex; gap: 6px; flex-wrap: wrap; }
   @media (max-width: 600px) {
     .grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
-    .overlay { padding: 0; align-items: flex-start; }
+    .overlay { padding: 0; align-items: flex-start; background: #000; overflow-y: auto; }
     .player { padding: 10px; }
     video { border-radius: 0; max-height: 45vh; }
   }
@@ -164,7 +164,8 @@
       grid.appendChild(card);
     });
     $("empty").hidden = shown.length > 0;
-    $("count").textContent = shown.length + " of " + clips.length + " clips · " + Object.keys(games).length + " games";
+    var ng = Object.keys(games).length;
+    $("count").textContent = shown.length + " of " + clips.length + " clips · " + ng + (ng === 1 ? " game" : " games");
     writeHash();
   }
 
