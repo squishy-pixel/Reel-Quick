@@ -66,6 +66,79 @@ can set them, and the detector can suggest them: the score bug is on screen
 during the game and absent in the studio shows. The phase is a `{phase}` field
 in the naming pattern (see Filing and naming).
 
+**Phase from the score bug (TJ, November 2026).** The bug is on screen for most
+of the game, so its quarter and clock set the phase automatically, and TJ
+overrides when needed:
+
+- No game clock seen yet: `pre`.
+- Kickoff: the first frames of the 1st quarter with the clock running.
+- Halftime: the 2nd quarter has ended (clock 0:00 in Q2, then no bug, or the
+  studio, for a stretch).
+- Second-half kickoff: the first frames of the 3rd quarter.
+- End of game: the 4th quarter (or overtime) has ended; after that it is `post`.
+
+The detector looks near each sample for the bug rather than trusting a single
+frame, since the bug drops out for replays, graphics and breaks.
+
+**Output folder (TJ, November 2026).** Every version of every clip goes under
+one output folder, which is a setting: it can be large and may live on whichever
+drive has room. Before a render the app estimates the space it needs (each
+clip's length with handles × each format's data rate, plus stills) and checks
+the destination's free space, warning or refusing when it will not fit.
+
+## Interfaces between detection and the app
+
+Detection runs on TJ's PC (GPU, recordings); the app imports its results. All
+frame numbers count from the first frame of the recording, as everywhere else.
+Both files are JSON with a `version` field; fields not listed here are allowed
+and ignored, so the detector can add evidence freely.
+
+**Phase boundaries**, one per game (`<game>.phases.json`):
+
+```json
+{
+  "version": 1,
+  "source": "scorebug",
+  "recording": "path or name of the file analysed",
+  "nb_frames": 1146000,
+  "kickoff": 81234,
+  "half_start": 520011,
+  "second_half_kickoff": 612340,
+  "game_end": 1039870,
+  "confidence": {"kickoff": 0.97, "half_start": 0.9, "second_half_kickoff": 0.95, "game_end": 0.92},
+  "evidence": {}
+}
+```
+
+Any boundary not found is `null`. `half_start` is where halftime begins (the
+first half has ended). The app treats these as suggestions: a boundary the
+operator has set by hand is never overwritten.
+
+**Candidate segments** (`<game>.candidates.json`), for step 4:
+
+```json
+{
+  "version": 1,
+  "source": "shell_eval",
+  "recording": "...",
+  "items": [
+    {
+      "in_frame": 412110, "out_frame": 412290,
+      "what": "shell",
+      "label": "Match-Up",
+      "alternatives": ["Next Week Promo"],
+      "whose": "ours",
+      "strength": 9.7
+    }
+  ]
+}
+```
+
+`what` is one of `shell`, `booth`, `scenic`, `closeup`, `fireworks`, `other`.
+`label` is the shell or category name as in the vocab lists; `alternatives`
+holds look-alike shells for grouped candidates. `whose` is `ours`, `nbc`,
+`other` or `unknown`. `strength` is the detector's score (higher is surer).
+
 ## Fireworks
 
 Fireworks are ours unless they are a touchdown or the national anthem.
@@ -497,6 +570,12 @@ close-ups that the shell vote has no category for.
 
 ### What counts as ours (TJ, November 2026)
 
+- **Network quarter cards stay rejected (decided).** The WK06 rerun showed the
+  network's blue-tunnel quarter cards are rejected through other packaging in
+  the same design, even with the quarter titles out of the reject set. TJ:
+  leave it. Our Score shell has its own design; TJ will report anything of ours
+  that goes missing.
+
 - **Quarter titles can be ours, or not.** We do the score going to break at
   the end of the 1st and 3rd quarters, and since this season the score
   coming into the 3rd quarter, just before the Prime Stories shell. The
@@ -540,7 +619,10 @@ close-ups that the shell vote has no category for.
    measuring step: scenic and close-up classes, and grouping look-alike
    shells.
 3. Phase boundaries and the anthem window in the app (set by hand first),
-   with `{phase}` in the naming pattern.
+   with `{phase}` in the naming pattern, filing by content type, the
+   `Other Content` folder, and a settable output folder with a size estimate
+   and free-space check (cloud session). In parallel, phase boundaries from
+   the score bug (PC), handed over as `<game>.phases.json`.
 4. Candidate markers in the app (a new marker source beside `log` and `user`),
    with the what, whose and phase labels, and owner-aware naming and folders.
 5. Fireworks (audio + picture), then the anthem and touchdown rules.
