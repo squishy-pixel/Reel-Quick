@@ -185,6 +185,24 @@ def season_report_cmd(work, out) -> None:
     click.echo(r["path"])
 
 
+@main.command("reel")
+@click.option("--work", default=None, type=click.Path(file_okay=False), help="Work folder holding the games (default ~/Videos/ReelQuick).")
+@click.option("--out", default=None, type=click.Path(file_okay=False), help="Reel folder (default: Reel in the work folder).")
+@click.option("--no-render", is_flag=True, help="Only use MP4s already rendered; skip clips that have none.")
+def reel_cmd(work, out, no_render) -> None:
+    """Build the web reel: every clip of every game, as a folder that plays in any browser."""
+    from .reel import build_reel
+    from .workspace import default_work_root
+    root = Path(work) if work else default_work_root()
+    bar = _Bar("reel")
+    r = build_reel(root, Path(out) if out else root / "Reel", render_missing=not no_render, on_progress=bar)
+    click.echo(f"{r['clips']} clips from {r['games']} games ({r['built_games']} built now, {r['kept_games']} kept); "
+               f"{r['rendered']} MP4s rendered")
+    for s in r["skipped"][:20]:
+        click.echo(f"skipped {s}", err=True)
+    click.echo(str(Path(r["out_dir"]) / "index.html"))
+
+
 @main.command("library")
 @click.argument("clips_folder", type=click.Path(exists=True, file_okay=False))
 @click.argument("out_dir", type=click.Path(file_okay=False))

@@ -472,3 +472,37 @@ def test_season_report_counts_every_game(client, tmp_path):
     head = [c.value for c in wb["By game"][1]]
     assert by_game[1][head.index("Ours 1st Half")] == 1 and by_game[1][head.index("Ours 2nd Half")] == 0
     assert wb["All clips"].max_row == 7
+
+
+def test_web_reel_covers_every_game_and_keeps_archived_ones(client, tmp_path):
+    import json
+    import shutil
+    from reelquick.reel import read_catalog
+    client.put("/api/game", json={"date": "261008", "week": "WK06", "away": "TB", "home": "DAL"})
+    a = client.post("/api/clips", json={"in_frame": 30, "out_frame": 90, "shell": "Match-Up", "prefill": False}).json()["clip"]
+    b = client.post("/api/clips", json={"in_frame": 150, "out_frame": 200, "shell": "Booth", "prefill": False}).json()["clip"]
+    client.patch(f"/api/clips/{b['id']}", json={"whose": "nbc"})
+    # clip a already has a Slack MP4; clip b has none, so the reel renders one
+    _wait(client, client.post("/api/jobs/render", json={"clip_ids": [a["id"]], "formats": ["mp4"], "mp4_quality": "slack", "stills": False}).json()["id"])
+    work = Path(client.get("/api/state").json()["work_root"])
+    proj = json.loads(next(work.glob("*/project.reelquick.json")).read_text())
+    p2 = json.loads(json.dumps(proj)); p2["game"] = {"date": "250918", "week": "WK03", "away": "MIA", "home": "BUF"}
+    (work / "lastyear").mkdir(); (work / "lastyear" / "project.reelquick.json").write_text(json.dumps(p2))
+    out = tmp_path / "reel"
+    r = client.post("/api/jobs/reel", json={"out_dir": str(out)}).json()
+    done = _wait(client, r["id"], timeout=240)
+    assert done["status"] == "done", done
+    res = done["result"]
+    # both games' clip a reuse the Slack MP4 (the copied project carries its rendered record); both b's render
+    assert res["clips"] == 4 and res["games"] == 2 and res["rendered"] == 2 and not res["skipped"]
+    cat = read_catalog(out)
+    assert (out / "index.html").is_file() and set(cat["games"]) == {"261008_WK06-TBvDAL", "250918_WK03-MIAvBUF"}
+    assert {c["season"] for c in cat["clips"]} == {"2025", "2026"}
+    for c in cat["clips"]:
+        assert (out / c["video"]).is_file() and (out / c["thumb"]).is_file()
+    assert {c["whose"] for c in cat["clips"]} == {"ours", "nbc"}
+    # archive last season's game: a rebuild keeps its clips in the reel
+    shutil.rmtree(work / "lastyear")
+    done = _wait(client, client.post("/api/jobs/reel", json={"out_dir": str(out)}).json()["id"], timeout=240)
+    assert done["result"]["kept_games"] == 1 and done["result"]["clips"] == 4
+    assert any(c["game"] == "250918_WK03-MIAvBUF" for c in read_catalog(out)["clips"])
