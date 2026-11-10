@@ -608,6 +608,140 @@ close-ups that the shell vote has no category for.
     logos and the TNF logo.
 - **State Farm Halftime Show title: not ours.** It stays in the reject set.
 
+## Findings: phase from the score bug
+
+Measured November 2026 with `engine/scripts/phase_eval.py` on WK04 SEA–ARI
+and WK06 PHI–NYG (1080p HEVC copies) and WK11 NYJ–NE (720p H.264). The
+`<game>.phases.json` files and the boundaries checked by eye
+(`phase-truth.json`) are in the detection-eval folder. On this boot the
+recordings were on `H:` and the work folder on `I:`: drive letters move
+between restarts, so look the drive up by name.
+
+### How it works
+
+1. **Find the bug.** OCR (EasyOCR on the GPU) reads the bottom 30% of 120
+   frames spread over the middle half of the recording. It keeps the tokens
+   that read as a quarter (1ST … 4TH, OT) with a game clock to their right,
+   and takes their median boxes. It found the bug in all three games (46,
+   47 and 20 sightings): the same place, scaled, at 1080p and 720p.
+2. **Read every keyframe**, recognition only, on the quarter box and the
+   clock box. That is one keyframe per ~1.1 s on the 1080p copies, ~4.2 s
+   on the 720p ones. A reading counts when it gives a quarter plus a valid
+   clock, or HALF / FINAL, which replace both once a half ends. The readings
+   are cached (`bug-<game>.json`), so the rules can change without decoding
+   again.
+3. **Rules over many readings, not single frames:**
+   - A reading only counts with 5 of the same quarter within ±5 min (HALF /
+     FINAL: 2 within 60 s, since they are only up for seconds).
+   - **Kickoff and second-half kickoff:** the quarter's first stretch of
+     readings that leads into a running clock (two readings in a row below
+     15:00). Take its first reading, minus 3.5 s for the bug to wipe on,
+     minus any time already run off. The 3.5 s was set on WK06 only.
+   - **Half start and game end:** the first 0:00 in the 2nd (or last,
+     overtime included) quarter that holds, meaning most of the next 6
+     readings are 0:00 too. It is confirmed by HALF / FINAL within 10 min.
+     Without a held 0:00, the boundary is the first HALF / FINAL after the
+     clock was last seen above 2:00. The first half's search stops where the
+     3rd quarter starts, so bugs in later highlights cannot move it.
+   - A boundary out of program order is left `null` rather than guessed.
+
+### Results
+
+True boundaries, by eye: a kick is the frame the kicker strikes the ball,
+and an end is the frame the clock reaches 0:00. They are accurate to about
+0.5 s.
+
+| Game | Boundary | Detected | True | Off |
+|---|---|---|---|---|
+| WK04 | kickoff | 279090 | 279090 | 0.0 s |
+| | half_start | 578970 | 578950 | +0.3 s |
+| | second_half_kickoff | 631170 | 631130 | +0.7 s |
+| | game_end | 932220 | 932200 | +0.3 s |
+| WK06 | kickoff | 280680 | 280610 | +1.2 s |
+| | half_start | 562320 | 562250 | +1.2 s |
+| | second_half_kickoff | 612360 | 612350 | +0.2 s |
+| | game_end | 926280 | 926250 | +0.5 s |
+| WK11 (720p) | kickoff | 347860 | 347830 | +0.5 s |
+| | half_start | 622750 | 622690 | +1.0 s |
+| | second_half_kickoff | 678550 | not shown | — |
+| | game_end | 958000 | 957840 | +2.7 s |
+
+- **All 11 checkable boundaries are within 2.7 s, and 8 are within 1 s.**
+  The worst is WK11's game end: at 720p the bug's 0:00 was never read, so
+  the first FINAL stands in. Its confidence is 0.7; all the others are
+  0.95.
+- **How independent the test is.** The rules were written while looking at
+  WK06's and WK11's readings. WK04 was scanned last and went through the
+  finished rules unchanged; only the kickoff confidence was relaxed
+  afterwards, which moves no frame.
+- **Only about a quarter of keyframes show a readable bug**: 4,540 of
+  17,308 on WK04, 4,268 of 17,838 on WK06, 810 of 4,673 on WK11. The rest
+  are ads, the studio, replays, close-ups and graphics. That is why every
+  rule works over a stretch of readings.
+
+### What turned up
+
+- **The bug comes on 2–4 s after a kick.** It wipes on during the return,
+  so its first reading is 15:00 or 14:59. When the clock has already run,
+  that time is added back.
+- **WK11's second-half kickoff is not on screen.** The broadcast stayed on a
+  coach interview over the kick and came back at frame 678886 on
+  `3RD 14:56`. The detector puts the kick at 678550 from the clock, which
+  cannot be checked. Clips there are game coverage either way.
+- **HALF and FINAL take the place of the quarter and clock** after 0:00.
+  WK04 flashed a wrong `2ND 13:00` for a couple of seconds between 0:00 and
+  HALF, which is why a 0:00 is judged on the readings after it, not on the
+  next one alone.
+- **720p reading needed lenient parsing.** Reads like `414` / `41H` for
+  4TH, `70.11` for 10:11 and a colon read as 3 or 8 are consistent, because
+  the font is. Without that, WK11 gave 269 readings and missed the 4th
+  quarter; with it, 810 and every boundary.
+- **OCR finds "FINAL" in garbage** (`Lnala`, `inaFina`) and in other games'
+  scores in the pregame. HALF / FINAL therefore only count once the
+  quarter's clock has run down.
+- **Boxes must hug the text row.** Padding the boxes upward took in the
+  band above the row and halved the reading rate on WK06.
+- **Speed.** Reading a whole game is slow. With three games scanning at
+  once, a 1080p game took the best part of an hour, the 720p one (a quarter
+  of the keyframes) far less. The cost is two OCR calls per keyframe. One
+  call for both boxes, or reading only every few keyframes until the bug
+  is seen, would cut it. Not timed precisely.
+
+### For TJ: where does halftime start?
+
+The detector gives the moment the clock hits 0:00 (`half_start`,
+`game_end`). The game coverage goes on after that before the break: the
+HALF bug, players leaving, a coach interview, "Halftime Show coming up
+next". On WK06 that is 80 s at the half (0:00 at 562250, break at 567020)
+and 33 s at the end (926250, break at 928220). Clips there are presumably
+game-group work, which suggests the boundary should be the cut to the
+break. If so, the detector can move it to the last frame of game coverage
+before the first break, using the end of the HALF / FINAL readings plus the
+picture test for the break. Not built yet.
+
+## Findings: candidates file (WK06)
+
+`shell_eval.py candidates` writes `<game>.candidates.json` in the format
+under "Interfaces" from the saved scores. It uses the patch matcher on
+equalised luma, the picture test plus the reject set, and the threshold
+from the reject-class findings (z 5.4). On WK06 it gives **55 candidates:
+38 shell, 7 booth, 6 closeup, 4 scenic**. They are exactly the 55 spans
+behind the reject-class results (graphics 8 / 10 found with 36 false
+alarms, camera 5 / 6 with 6).
+
+- **`what`** comes from the shell: Booth → `booth`; Scenic Comp and Scenic
+  Droneshow → `scenic`; Kelce Close Up → `closeup` (WK06's player
+  close-ups land there); On Field → `other`; everything else → `shell`.
+- **`alternatives`** lists the look-alike group (Promo / NBA Promo / Next
+  Week Promo; Match-Up / Next Week Promo) plus any shell scoring within 3%
+  of the label over the span. 21 of the 55 have some.
+- **`whose`** is `ours` throughout. Everything matched is from our library,
+  and what the reject set recognises as not ours has already been dropped.
+  `nbc` waits for NBC references.
+- **`in_frame` / `out_frame`** are the first and last keyframe samples of
+  the span (±1 s), not yet refined to the cut. `strength` is the span's
+  peak z. An extra `samples` field gives the span's length in samples.
+
 ## Order of work
 
 1. ~~Verify the frame-number hypothesis on one of last season's full games.~~
@@ -622,9 +756,12 @@ close-ups that the shell vote has no category for.
    with `{phase}` in the naming pattern, filing by content type, the
    `Other Content` folder, and a settable output folder with a size estimate
    and free-space check (cloud session). In parallel, phase boundaries from
-   the score bug (PC), handed over as `<game>.phases.json`.
+   the score bug (PC), handed over as `<game>.phases.json`: done for WK04,
+   WK06 and WK11, see Findings: phase from the score bug. Open: whether
+   halftime starts at 0:00 or at the cut to the break.
 4. Candidate markers in the app (a new marker source beside `log` and `user`),
    with the what, whose and phase labels, and owner-aware naming and folders.
+   `<game>.candidates.json` exists for WK06 (Findings: candidates file).
 5. Fireworks (audio + picture), then the anthem and touchdown rules.
 6. OCR naming suggestions, and phase suggestions from the score bug.
 7. Feedback loop: confirmed clips into the library.

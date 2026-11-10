@@ -305,7 +305,7 @@ def kickoff(fr, q, c, core, quarter: int):
     n_q = len(qi)
     # sure when the bug came up with the clock still at 15:00 and started running soon after; less sure when the
     # first sighting already shows a running clock (the bug was missed at the kick) or the 15:00 stretch is long
-    conf = 0.95 if c[first] == 900 else 0.6
+    conf = 0.95 if 900 - c[first] <= 5 else 0.6
     if stretch > 120:
         conf -= 0.25
     conf *= min(1.0, n_q / 50)
