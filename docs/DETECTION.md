@@ -76,7 +76,9 @@ overrides when needed:
   following the 2nd quarter's 0:00. The game crew hands over to the
   pre/half/post crew in that break, so the coverage between 0:00 and the
   break is still `game` (TJ, November 2026).
-- Second-half kickoff: the first frames of the 3rd quarter.
+- Second half: starts when the game crew comes back after the halftime
+  break, before the kick. The score into the 3rd quarter and Prime Stories
+  come before the kick and are `game` (TJ, November 2026).
 - End of game: likewise, `post` starts with the postgame show after the
   first break following the last quarter's (or overtime's) 0:00.
 
@@ -116,8 +118,11 @@ and ignored, so the detector can add evidence freely.
 Any boundary not found is `null`. `half_start` is the first frame of the
 halftime show and `game_end` the first frame of the postgame show, each
 after the commercial break that follows the clock's 0:00; the 0:00 frames
-are in `evidence` (`clock_zero`). The app treats these as suggestions: a boundary the
-operator has set by hand is never overwritten.
+are in `evidence` (`clock_zero`). `second_half_kickoff` keeps its name but
+is the start of the second half's game coverage: the first frame after the
+halftime break, before the kick. The kick itself is in `evidence`
+(`kick`). The app treats these as suggestions: a boundary the operator has
+set by hand is never overwritten.
 
 **Candidate segments** (`<game>.candidates.json`), for step 4:
 
@@ -718,6 +723,13 @@ between restarts, so look the drive up by name.
    boundary is the frame after it. Without a black frame it would take the
    title minus 6 s, but every case so far had one. A show not found leaves
    the 0:00 with confidence 0.3. Results go in `shows-<game>.json`.
+5. **The second half starts with the game crew's return** (same `shows`
+   step). From the second-half kick it reads back up to 10 min at 30 frames
+   a second, takes the last black frame (the end of the halftime break),
+   and starts the second half on the next frame. Found 93–131 s before the
+   kick on all four games. In each, the break's last ad is a "Monday / Sunday
+   games" schedule card, then black, then the same few-second open (a
+   phone-camera rig) and the teams coming out of the tunnel.
 
 ### Results
 
@@ -730,27 +742,30 @@ and a 0:00 is the frame the clock reaches 0:00, both accurate to about
 | WK04 | kickoff | 279090 | 279090 | 0.0 s |
 | | 2nd quarter 0:00 | 578970 | 578950 | +0.3 s |
 | | **half_start** (halftime show) | 591807 | 591807 | within 0.75 s |
-| | second_half_kickoff | 631170 | 631130 | +0.7 s |
+| | **second_half_kickoff** (crew's return) | 625452 | 625452 | within 1.5 s |
+| | 2nd-half kick | 631170 | 631130 | +0.7 s |
 | | 4th quarter 0:00 | 932220 | 932200 | +0.3 s |
 | | **game_end** (postgame show) | 951049 | 951049 | within 0.75 s |
 | WK06 | kickoff | 280680 | 280610 | +1.2 s |
 | | 2nd quarter 0:00 | 562320 | 562250 | +1.2 s |
 | | **half_start** (halftime show) | 576114 | 576114 | within 0.75 s |
-| | second_half_kickoff | 612360 | 612350 | +0.2 s |
+| | **second_half_kickoff** (crew's return) | 606786 | 606786 | within 1.5 s |
+| | 2nd-half kick | 612360 | 612350 | +0.2 s |
 | | 4th quarter 0:00 | 926280 | 926250 | +0.5 s |
 | | **game_end** (postgame show) | 936987 | 936987 | within 0.75 s |
 | WK11 (720p) | kickoff | 347860 | 347830 | +0.5 s |
 | | 2nd quarter 0:00 | 622750 | 622690 | +1.0 s |
 | | **half_start** (halftime show) | 635523 | 635523 | within 0.75 s |
-| | second_half_kickoff | 678550 | not shown | — |
+| | **second_half_kickoff** (crew's return) | 670678 | 670678 | within 1.5 s |
+| | 2nd-half kick | 678550 | not shown | — |
 | | 4th quarter 0:00 | 958000 | 957840 | +2.7 s |
 | | **game_end** (postgame show) | 969277 | 969277 | within 0.75 s |
 
-- **The show starts were checked, not measured independently.** I looked
-  at sheets 0.75 s apart around each detected start. All six fall on the
-  cut from the break's last black frame to the show's open, so the truth
-  column repeats the detected frame and "within 0.75 s" is the check's
-  resolution.
+- **The show starts and returns were checked, not measured
+  independently.** I looked at sheets 0.75 s (shows) and 1.5 s (returns)
+  apart around each detected start. Every one falls on the cut from the
+  break's last black frame, so the truth column repeats the detected frame
+  and the "within" figure is the check's resolution.
 - **The clock boundaries: all 11 that can be checked are within 2.7 s, and
   8 within 1 s.** The worst is WK11's final 0:00: at 720p the bug's 0:00
   was never read, so the first FINAL stands in. Its confidence is 0.7.
@@ -904,7 +919,8 @@ this season's package keeps its layout. Checked on sheets as before:
 | kickoff | 398968 | 399000 | −0.5 s |
 | 2nd quarter 0:00 | 693718 | 693670 | +0.8 s |
 | **half_start** (halftime show) | 713392 | on the cut | within 0.75 s |
-| second_half_kickoff | 751468 | 751530 | −1.0 s |
+| **second_half_kickoff** (crew's return) | 745800 | on the cut | within 1.5 s |
+| 2nd-half kick | 751468 | 751530 | −1.0 s |
 | 4th quarter 0:00 | 1057318 | 1057130 | +3.1 s |
 | **game_end** (postgame show) | 1070864 | on the cut | within 0.75 s |
 
@@ -915,13 +931,10 @@ this season's package keeps its layout. Checked on sheets as before:
 - **The truth is coarser than last time** for the 0:00s: about ±1 s, read
   off sheets at 1.5 and 3 s steps.
 
-**For TJ: where should the second half start?** The game crew comes back
-before the second-half kick: TJ's own clips `05_Score_Drone` (747641) and
-`06_Prime-Stories_SkyCam` (748139) run from 63 s before the kick. With the
-kick as the boundary, they are `half`. By the handover rule (the crews hand
-over in a break), the second half should perhaps start at the end of the
-break after the halftime show. That is the cut back from the ads to the
-game crew, which the same black-frame step could find.
+**The second half starts with the game crew's return.** TJ's clips
+`05_Score_Drone` (747641) and `06_Prime-Stories_SkyCam` (748139) run from
+63 s before the kick. TJ confirmed they are `game`, so the second half now
+starts at the end of the halftime break (745800, 95 s before the kick).
 
 ### Candidates
 
@@ -937,7 +950,7 @@ is no found / missed / false-alarm count per shell. What there is:
 | What it is | pre | 1st half | half | 2nd half | post | Total |
 |---|---|---|---|---|---|---|
 | Our graphic, right label | 5 | 1 | | | 2 | 8 |
-| Our graphic, wrong label | 5 | | 6 | | | 11 |
+| Our graphic, wrong label | 5 | | | 6 | | 11 |
 | Booth | 3 | 1 | | | | 4 |
 | Close-up (fan, coach) | 1 | | | | 1 | 2 |
 | Scenic (stadium aerial) | 1 | | | | | 1 |

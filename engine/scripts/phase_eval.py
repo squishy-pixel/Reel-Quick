@@ -457,6 +457,16 @@ def phases(fr, q, c, shows: dict | None = None):
             else:
                 ev[k]["show"] = "not found: the clock's 0:00 is given instead"
                 conf[k] = 0.3
+        # the second half starts when the game crew comes back after the halftime break, before the kick
+        r = shows.get("second_half_kickoff")
+        if out["second_half_kickoff"] is not None:
+            ev["second_half_kickoff"]["kick"] = out["second_half_kickoff"]
+            if r and (out["half_start"] is None or r["start"] > out["half_start"]):
+                ev["second_half_kickoff"]["return"] = r
+                out["second_half_kickoff"] = r["start"]
+            else:
+                ev["second_half_kickoff"]["return"] = "not found: the kick is given instead"
+                conf["second_half_kickoff"] = min(conf["second_half_kickoff"], 0.5)
     # program order must hold; a boundary out of order is dropped rather than guessed
     order = ["kickoff", "half_start", "second_half_kickoff", "game_end"]
     prev = -1
@@ -491,7 +501,9 @@ def cmd_phases(a):
             rows = [("kickoff", res["kickoff"], "kickoff"),
                     ("half 0:00", ev["half_start"].get("clock_zero", res["half_start"]), "half_clock0"),
                     ("half_start (show)", res["half_start"], "half_show"),
-                    ("second_half_kickoff", res["second_half_kickoff"], "second_half_kickoff"),
+                    ("2nd-half kick", ev["second_half_kickoff"].get("kick", res["second_half_kickoff"]),
+                     "second_half_kickoff"),
+                    ("second_half (return)", res["second_half_kickoff"], "second_half_return"),
                     ("end 0:00", ev["game_end"].get("clock_zero", res["game_end"]), "end_clock0"),
                     ("game_end (show)", res["game_end"], "post_show")]
             for k, v, tk in rows:
@@ -544,13 +556,42 @@ def find_show(path: str, rd: Reader, zero_frame: int, word: str) -> dict | None:
     return None
 
 
+RETURN_BACK = 10 * 60       # s before the second-half kick to look for the end of the halftime break
+
+
+def find_return(path: str, kick_frame: int) -> dict | None:
+    """Start of the game crew's second-half coverage: the frame after the last black frame before the kick.
+    TJ: the crews hand over in a commercial break, and the game crew comes back before the kick (the score
+    into the 3rd quarter, Prime Stories), so the second half starts when the halftime break ends."""
+    t_end = kick_frame / FPS
+    t0 = max(0.0, t_end - RETURN_BACK)
+    bt, bf = window_frames(path, t0, t_end - t0, fps=30, w=160, h=90)
+    y = bf.reshape(len(bf), -1).astype(np.float32)
+    black = np.where((np.median(y, 1) < 20) & (y.std(1) < 8))[0]
+    if not len(black):
+        return None
+    start = bt[black[-1]] + 1 / 30
+    return {"start": int(round(start * FPS)), "kick": kick_frame, "black": int(round(bt[black[-1]] * FPS)),
+            "how": "after the last black frame before the kick (end of the halftime break)",
+            "lead_s": round(t_end - start, 1)}
+
+
 def cmd_shows(a):
     """Find the halftime and postgame shows' starts; writes shows-<game>.json, which phases then uses."""
     cache = Path(a.cache)
     d, fr, q, c = load_readings(cache, a.game)
-    _, _, ev = phases(fr, q, c, shows=None)
-    rd = Reader()
+    clock, _, ev = phases(fr, q, c, shows=None)
     out = {}
+    if clock["second_half_kickoff"] is not None:
+        out["second_half_kickoff"] = find_return(d["recording"], clock["second_half_kickoff"])
+        print("second_half_kickoff", out["second_half_kickoff"], flush=True)
+    if a.only_return:
+        old = cache / f"shows-{a.game}.json"
+        prev = json.loads(old.read_text(encoding="utf-8")) if old.exists() else {}
+        prev.update(out)
+        old.write_text(json.dumps(prev, indent=1), encoding="utf-8")
+        return
+    rd = Reader()
     for k, word in SHOW_WORDS.items():
         z = ev[k].get("first_zero") or ev[k].get("first_state")
         if z is None:
@@ -586,6 +627,8 @@ def main():
     w = sub.add_parser("shows", help="find the halftime / postgame show starts (after scan; before phases)")
     w.add_argument("--game", required=True)
     w.add_argument("--cache", required=True)
+    w.add_argument("--only-return", action="store_true",
+                   help="only (re)find the second half's start and merge it into an existing shows file")
     f = sub.add_parser("phases")
     f.add_argument("--game", required=True)
     f.add_argument("--cache", required=True)
