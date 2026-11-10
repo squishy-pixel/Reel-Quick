@@ -581,6 +581,57 @@ def cmd_report(a):
     print(f"results: {out}")
 
 
+# Candidates for the app (docs/DETECTION.md, "Interfaces between detection and the app")
+CAMERA_WHAT = {"Booth": "booth", "Scenic Comp": "scenic", "Scenic Droneshow": "scenic",
+               "Kelce Close Up": "closeup", "On Field": "other"}
+# shells that look alike and were confused on WK04 / WK06: a candidate labelled with one lists the others
+LOOKALIKES = [{"Promo", "NBA Promo", "Next Week Promo"}, {"Match-Up", "Next Week Promo"}]
+RUNNER_UP = 0.97        # also list a shell whose mean raw score over the span is within 3% of the label's
+
+
+def cmd_candidates(a):
+    """<game>.candidates.json from saved scores: patch matcher, the given variant, with the reject gate."""
+    cache = Path(a.cache)
+    meta = json.loads((cache / f"key-{a.test_game}.json").read_text(encoding="utf-8"))
+    shells, rs = meta["shells"], np.array(meta["ref_shell"])
+    z_ = np.load(cache / f"scores-{a.test_game}-{a.variant}.npz")
+    if "test_rsim" not in z_.files:
+        raise SystemExit("scores were made without --reject-manifest; rerun score with the gate")
+    tidx = z_["test_idx"]
+    keep = z_["ref_keep"]
+    tau = float(np.percentile(z_["ref_rsim"][keep], REJECT_KEEP))
+    rejected = (z_["test_flat"] >= FLAT_T) | (z_["test_rsim"] > tau)
+    bg, loo, test = z_["gbg_patch"], z_["gloo_patch"], z_["gtest_patch"]
+    med, mad = robust_z(bg)
+    llab, lz = detect(loo, med, mad)
+    thr = float(np.percentile(lz[llab == rs[keep]], 100 - LOO_RECALL))
+    lab, tz = detect(test, med, mad)
+    tz = np.where(rejected, -np.inf, tz)
+    labels = np.where(tz > thr, lab, -1)
+    items = []
+    for l, s, e in spans(labels, tidx, MIN_SPAN):
+        m = (tidx >= s) & (tidx <= e) & (labels == l)
+        name = shells[l]
+        mean_raw = test[m].mean(0)
+        alts = {x for g in LOOKALIKES if name in g for x in g} - {name}
+        alts |= {shells[j] for j in np.where(mean_raw >= RUNNER_UP * mean_raw[l])[0] if j != l}
+        items.append({"in_frame": int(s), "out_frame": int(e), "what": CAMERA_WHAT.get(name, "shell"),
+                      "label": name, "alternatives": sorted(alts), "whose": "ours",
+                      "strength": round(float(tz[m].max()), 2), "samples": int(m.sum())})
+    out = {"version": 1, "source": "shell_eval", "recording": a.recording or meta.get("recording", ""),
+           "items": items,
+           "evidence": {"matcher": "patch", "variant": a.variant, "gate": "flat + reject set",
+                        "threshold_z": round(thr, 2), "reject_tau": round(tau, 3), "min_span_samples": MIN_SPAN,
+                        "note": "in/out are the first and last keyframe samples of the span (about 1.1 s apart "
+                                "on the 1080p copies), not refined to the cut"}}
+    path = cache / f"{a.test_game}.candidates.json"
+    path.write_text(json.dumps(out, indent=1), encoding="utf-8")
+    whats = defaultdict(int)
+    for it in items:
+        whats[it["what"]] += 1
+    print(f"{len(items)} candidates ({dict(whats)}), threshold z {thr:.1f}: {path}")
+
+
 def cmd_colour(a):
     """Cosine between clip frames and the exact recording frames they were cut from, per variant."""
     clips = load_library(a.library)
@@ -656,8 +707,13 @@ def main():
     c.add_argument("--pair", action="append", required=True, help="GAME=RECORDING@BASE")
     c.add_argument("--not-in-feed", nargs="*", default=[])
     c.add_argument("--cache", required=True)
+    k = sub.add_parser("candidates", help="write <game>.candidates.json (patch matcher with the reject gate)")
+    k.add_argument("--test-game", required=True)
+    k.add_argument("--cache", required=True)
+    k.add_argument("--variant", default="eq")
+    k.add_argument("--recording", help="recording name to put in the file")
     a = ap.parse_args()
-    {"score": cmd_score, "report": cmd_report, "colour": cmd_colour}[a.cmd](a)
+    {"score": cmd_score, "report": cmd_report, "colour": cmd_colour, "candidates": cmd_candidates}[a.cmd](a)
 
 
 if __name__ == "__main__":
