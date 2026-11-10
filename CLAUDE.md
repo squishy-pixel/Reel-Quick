@@ -48,7 +48,9 @@ ffmpeg lookup order is in `ffmpeg.py:_candidate_dirs`: `REELQUICK_FFMPEG_DIR`, t
 
 **Undo in the UI** is one order across two places. In/out marks live only in the window. `App.tsx` keeps its own stack: a `marks` entry for each mark change, and a `server` entry each time the server's `history.seq` (a counter that only `remember()` moves) goes up. Undo pops that stack, restoring marks locally or calling `/api/undo`. Every mark change must go through `setMarks`, or it falls out of the undo order.
 
-**Preferences** (keyboard bindings now, app defaults later) live in `<work root>/prefs.json` via `prefs.py` and `PUT /api/prefs`, not in browser storage. The app window starts in private mode on a new port every launch, so `localStorage` does not survive a restart. Actions and default keys are in `app/src/shortcuts.ts`; tooltips use `tip()` so they show the live binding.
+**Broadcast phases and filing.** `project.phases` holds the boundaries (kickoff, half_start, second_half_kickoff, game_end, plus the anthem window), each with its source. `phase_of()` turns them into pre / game / half / post, mirrored in `app/src/phases.ts`. A detector's `<game>.phases.json` (format in `docs/DETECTION.md`, Interfaces) imports through `/api/phases/import` and never replaces a boundary set by hand. Outputs go to `project.clip_folder()`: a folder per content type, or `Other Content` for clips whose `whose` isn't `ours`. `/api/render/estimate` and the render job compare `estimate_bytes()` with the destination's free space.
+
+**Preferences** (keyboard bindings, the output root, small UI state) live in `<work root>/prefs.json` via `prefs.py` and `PUT /api/prefs`, not in browser storage. The app window starts in private mode on a new port every launch, so `localStorage` does not survive a restart. Actions and default keys are in `app/src/shortcuts.ts`; tooltips use `tip()` so they show the live binding.
 
 **Jobs.** Long work (filmstrip, proxy, render) runs through `jobs.JobManager` as `fn(progress_cb, cancel_event)`. `run_ffmpeg` turns ffmpeg's `out_time` into a 0–1 fraction and kills the process when the event is set.
 
