@@ -109,16 +109,27 @@ def keyframes(path: str, crop: tuple[int, int, int, int], p0: float, batch: int 
 # ---------------------------------------------------------------------------------------- reading
 
 def parse_quarter(s: str) -> int:
-    s = s.upper().replace(" ", "")
-    return QUARTERS.get(s.replace("I", "1").replace("L", "1"), 0)
+    """Quarter word, also inside a longer reading: at 720p the box takes in an edge of the bug ("AIst")."""
+    s = s.upper().replace(" ", "").replace("I", "1").replace("L", "1")
+    if s in QUARTERS:
+        return QUARTERS[s]
+    m = re.search(r"1ST|2ND|3RD|4TH", s)
+    if m:
+        return QUARTERS[m.group(0)]
+    # 720p misreads, consistent because the font is: 4TH as "414"/"41H", 1ST as "1S1"/"15T", 2ND as "2N0"
+    m = re.match(r"^\D?([1-4])([A-Z0-9])", s)
+    if m and m.group(2) in {"1": "S5", "2": "N", "3": "R", "4": "T17"}[m.group(1)]:
+        return int(m.group(1))
+    return 0
 
 
 def parse_state(q: str, c: str) -> int:
     """HALF or FINAL, read in either box (allowing a lost letter), else 0."""
-    s = (q + c).upper().replace(" ", "")
-    if re.search(r"HA?LF|HAL", s):
+    s = re.sub(r"[^A-Z]", "", (q + c).upper().replace("1", "I"))
+    # the word straddles both boxes, so it comes in pieces: "H" + "ALF", "FL" + "NAL" (720p)
+    if any(k in s for k in ("HALF", "ALF", "HAL", "HLF")):
         return HALF
-    if re.search(r"FINAL|FINA|INAL|FNAL", s.replace("1", "I")):
+    if any(k in s for k in ("FINAL", "NAL", "FIN", "FNAL")):
         return FINAL
     return 0
 
@@ -130,12 +141,18 @@ def parse_clock(s: str) -> int:
     if m:
         return int(m.group(1)) if int(m.group(1)) < 60 else -1
     d = re.sub(r"\D", "", s)
-    if not 3 <= len(d) <= 4:
-        return -1
-    mins, secs = int(d[:-2]), int(d[-2:])
-    if secs > 59 or mins > 15 or (mins == 15 and secs):
-        return -1
-    return mins * 60 + secs
+    # a leading 1 read as 7 (720p: "70.11" for 10:11); no game clock has 70+ minutes
+    if len(d) >= 4 and d[0] == "7":
+        d = "1" + d[1:]
+    # the colon is sometimes read as a digit (at 720p "14355" for 14:55): try without the digit where it sits
+    colon = len(d) == 5 or (len(d) == 4 and d[-3] in "38")
+    for cand in (d, d[:-3] + d[-2:] if colon else None):
+        if cand is None or not 3 <= len(cand) <= 4:
+            continue
+        mins, secs = int(cand[:-2]), int(cand[-2:])
+        if secs <= 59 and (mins < 15 or (mins == 15 and not secs)):
+            return mins * 60 + secs
+    return -1
 
 
 class Reader:
@@ -235,6 +252,149 @@ def load_readings(cache: Path, game: str):
     return d, fr, q, c
 
 
+# PHASE RULES
+CORE_WINDOW = 300           # s: a sighting counts only with CORE_MIN sightings of the same state within +-this
+CORE_MIN = 5                #    (drops single misreads, e.g. a "1ST" read off a replay graphic in the postgame)
+RUN_GAP = 90                # s: sightings further apart than this belong to different stretches of the bug
+KICK_LEAD = 3.5             # s: the bug wipes on and first reads "15:00" this long after the kick; set on WK06
+                            #    (opening kick 3.5 s, second-half kick 4.2 s), tested on WK04 and WK11
+
+
+STATE_WINDOW, STATE_MIN = 60, 2     # HALF / FINAL are up for seconds, not minutes: 2 sightings within 60 s
+ZERO_AFTER = 6              # a 0:00 reading counts as the end of a quarter only if the next ZERO_AFTER readings
+                            # of that quarter (within 10 min) mostly read 0:00 too: OCR turns a garbled clock into
+                            # "0.7" now and then, while a real 0:00 stays up until the bug changes to HALF/FINAL
+
+
+def core_mask(fr: np.ndarray, q: np.ndarray) -> np.ndarray:
+    """Sightings backed by enough sightings of the same state nearby (see CORE_* and STATE_*)."""
+    t = fr / FPS
+    keep = np.zeros(len(q), bool)
+    for s in np.unique(q[q > 0]):
+        win, need = (STATE_WINDOW, STATE_MIN) if s in (HALF, FINAL) else (CORE_WINDOW, CORE_MIN)
+        idx = np.where(q == s)[0]
+        ts = t[idx]
+        lo = np.searchsorted(ts, ts - win)
+        hi = np.searchsorted(ts, ts + win, side="right")
+        keep[idx[(hi - lo) >= need]] = True
+    return keep
+
+
+def kickoff(fr, q, c, core, quarter: int):
+    """The kick that starts `quarter` (1 or 3): back from the first running clock over the 15:00 stretch."""
+    t = fr / FPS
+    qi = np.where(core & (q == quarter))[0]
+    if not len(qi):
+        return None, 0.0, {"reason": f"no Q{quarter} sightings"}
+    # running: below 15:00 and the next reading of the quarter agrees (below 15:00, not above this one)
+    running = np.array([qi[k] for k in range(len(qi) - 1)
+                        if c[qi[k]] < 900 and c[qi[k + 1]] < 900 and c[qi[k + 1]] <= c[qi[k]] + 2], int)
+    if not len(running):
+        return None, 0.0, {"reason": f"Q{quarter} clock never seen running"}
+    r = running[0]
+    # walk back over sightings of this quarter at 15:00 (or the running one itself), RUN_GAP apart at most
+    first = r
+    for i in qi[qi < r][::-1]:
+        if c[i] != 900 or t[first] - t[i] > RUN_GAP:
+            break
+        first = i
+    stretch = t[r] - t[first]
+    # When the first reading already shows a running clock (the bug came up during the return), the time
+    # that has run off goes back too: the clock starts when the returner touches the ball.
+    frame = int(round(fr[first] - (KICK_LEAD + (900 - c[first])) * FPS))
+    n_q = len(qi)
+    # sure when the bug came up with the clock still at 15:00 and started running soon after; less sure when the
+    # first sighting already shows a running clock (the bug was missed at the kick) or the 15:00 stretch is long
+    conf = 0.95 if c[first] == 900 else 0.6
+    if stretch > 120:
+        conf -= 0.25
+    conf *= min(1.0, n_q / 50)
+    return frame, round(conf, 2), {"first_sighting": int(fr[first]), "first_clock": int(c[first]),
+                                    "first_running": int(fr[r]), "running_clock": int(c[r]),
+                                    "stretch_s": round(stretch, 1), "quarter_sightings": n_q}
+
+
+def period_end(fr, q, c, core, quarters: tuple[int, ...], state: int):
+    """End of a half: the first time the clock reads 0:00 in the half's last quarter, confirmed by the
+    HALF/FINAL state (or by no more of that quarter); else the first HALF/FINAL; else the last sighting."""
+    t = fr / FPS
+    qi = np.where(core & np.isin(q, quarters))[0]
+    si = np.where(core & (q == state))[0]
+    if not len(qi) and not len(si):
+        return None, 0.0, {"reason": "no sightings"}
+    last_q = int(q[qi].max()) if len(qi) else None
+    zero = qi[(q[qi] == last_q) & (c[qi] == 0)] if last_q else np.array([], int)
+    lq = qi[q[qi] == last_q] if last_q else np.array([], int)
+    # HALF / FINAL count only after the quarter's clock was last seen above 2:00: OCR finds "FINAL" in garbage
+    # ("Lnala", "inaFina") and the pregame shows other games' finals, but the real one comes after the clock
+    # has run down
+    if len(lq):
+        above = lq[c[lq] > 120]
+        si = si[si > (above[-1] if len(above) else lq[0])]
+
+    def holds(z):
+        nxt = lq[(lq > z) & (t[lq] - t[z] < 600)][:ZERO_AFTER]
+        return not len(nxt) or np.mean(c[nxt] <= 1) >= 0.5
+    rejected = [int(fr[z]) for z in zero if not holds(z)]
+    zero = np.array([z for z in zero if holds(z)], int)
+    ev = {"last_quarter": last_q, "zero_sightings": int(len(zero)), "state_sightings": int(len(si))}
+    if rejected:
+        ev["zero_readings_not_held"] = rejected[:10]
+    if len(si):
+        ev["first_state"] = int(fr[si[0]])
+    if len(zero):
+        z = zero[0]
+        ev["first_zero"] = int(fr[z])
+        later_play = qi[(qi > z) & (c[qi] > 0) & (q[qi] == last_q)]
+        confirmed = (len(si) and si[0] > z and t[si[0]] - t[z] < 600) or not len(later_play)
+        conf = 0.95 if confirmed else 0.6
+        return int(fr[z]), conf, ev
+    if len(si):
+        return int(fr[si[0]]), 0.7, ev
+    return int(fr[qi[-1]]), 0.4, ev
+
+
+def phases(fr, q, c):
+    core = core_mask(fr, q)
+    out, conf, ev = {}, {}, {}
+    for name, fn in (("kickoff", lambda: kickoff(fr, q, c, core, 1)),
+                     ("half_start", lambda: period_end(fr, q, c, core, (2,), HALF)),
+                     ("second_half_kickoff", lambda: kickoff(fr, q, c, core, 3)),
+                     ("game_end", lambda: period_end(fr, q, c, core, (4, 5), FINAL))):
+        out[name], conf[name], ev[name] = fn()
+    # program order must hold; a boundary out of order is dropped rather than guessed
+    order = ["kickoff", "half_start", "second_half_kickoff", "game_end"]
+    prev = -1
+    for k in order:
+        if out[k] is not None:
+            if out[k] <= prev:
+                ev[k]["dropped"] = f"out of order (at {out[k]})"
+                out[k], conf[k] = None, 0.0
+            else:
+                prev = out[k]
+    ev["sightings"] = {"total": int((q > 0).sum()), "core": int(core.sum()), "samples": int(len(q))}
+    return out, conf, ev
+
+
+def cmd_phases(a):
+    cache = Path(a.cache)
+    d, fr, q, c = load_readings(cache, a.game)
+    out, conf, ev = phases(fr, q, c)
+    res = {"version": 1, "source": "scorebug", "recording": Path(d["recording"]).name,
+           "nb_frames": d["nb_frames"], **out, "confidence": conf,
+           "evidence": {"method": "phase_eval.py: OCR of quarter and game clock on every keyframe", **ev}}
+    path = cache / f"{a.game}.phases.json"
+    path.write_text(json.dumps(res, indent=2), encoding="utf-8")
+    print(json.dumps({k: res[k] for k in ("kickoff", "half_start", "second_half_kickoff", "game_end", "confidence")}))
+    if a.truth:
+        tr = json.loads(Path(a.truth).read_text(encoding="utf-8")).get(a.game)
+        if tr:
+            for k, tk in (("kickoff", "kickoff"), ("half_start", "half_clock0"),
+                          ("second_half_kickoff", "second_half_kickoff"), ("game_end", "end_clock0")):
+                if res[k] is not None and tk in tr:
+                    print(f"  {k:20s} {res[k]:8d}  truth {tr[tk]:8d}  off {(res[k] - tr[tk]) / FPS:+7.1f} s")
+
+
 def cmd_dump(a):
     d, fr, q, c = load_readings(Path(a.cache), a.game)
     for r, qq, cc in zip(d["rows"], q, c):
@@ -255,8 +415,12 @@ def main():
     d.add_argument("--cache", required=True)
     d.add_argument("--from", dest="frm", type=int, default=0)
     d.add_argument("--to", type=int, default=10**9)
+    f = sub.add_parser("phases")
+    f.add_argument("--game", required=True)
+    f.add_argument("--cache", required=True)
+    f.add_argument("--truth", help="JSON of boundaries checked by eye, to print how far off each one is")
     a = p.parse_args()
-    {"scan": cmd_scan, "dump": cmd_dump}[a.cmd](a)
+    {"scan": cmd_scan, "dump": cmd_dump, "phases": cmd_phases}[a.cmd](a)
 
 
 if __name__ == "__main__":
