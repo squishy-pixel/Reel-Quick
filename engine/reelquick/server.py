@@ -802,6 +802,16 @@ def create_app(session: Session | None = None) -> FastAPI:
             raise HTTPException(409, str(e))
         return job.to_dict()
 
+    @app.post("/api/export/log")
+    def export_log():
+        """This game's log as two spreadsheets, Girraphic's and everyone else's, in its output folder."""
+        w = ws()
+        from .exports import export_game_log
+        try:
+            return export_game_log(w.project, w.clips_dir, w.root.name)
+        except OSError as e:
+            raise HTTPException(500, f"could not write the log: {e}")
+
     @app.post("/api/render/estimate")
     def render_estimate(body: RenderBody):
         """What a render would take on disk, and whether its destination has room. Same body as the render."""

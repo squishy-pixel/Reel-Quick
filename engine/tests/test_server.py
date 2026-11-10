@@ -415,3 +415,29 @@ def test_candidates_import_review_and_undo(client):
     clip_id = st["clips"][0]["id"]
     st = client.delete(f"/api/clips/{clip_id}").json()["project"]
     assert next(c for c in st["candidates"] if c["id"] == promo["id"])["status"] == "pending"
+
+
+def test_export_log_splits_ours_from_everyone_elses(client, tmp_path):
+    from openpyxl import load_workbook
+    client.put("/api/game", json={"date": "261008", "week": "WK06", "away": "TB", "home": "DAL"})
+    client.put("/api/prefs", json={"output_root": str(tmp_path / "out")})
+    client.put("/api/phases", json={"values": {"kickoff": 100, "half_start": 200, "second_half_kickoff": 250}})
+    # a log marker at 15:25:02;00 PT = 18:25:02 ET, and a clip on it
+    client.post("/api/markers/import", json={"csv": "Time,Shell,Description\n6:25:02 PM,Standings,NFC standings\n"})
+    a = client.post("/api/clips", json={"in_frame": 120, "out_frame": 180, "shell": "Standings", "desc": "NFC standings"}).json()["clip"]
+    b = client.post("/api/clips", json={"in_frame": 260, "out_frame": 320, "shell": "Standings", "desc": "network table", "prefill": False}).json()["clip"]
+    client.patch(f"/api/clips/{b['id']}", json={"whose": "nbc"})
+    client.post("/api/candidates/import", json={"data": _cands((20, 80, "booth", "Booth", [], 9.0))})
+    cand = client.get("/api/state").json()["project"]["candidates"][0]
+    client.post(f"/api/candidates/{cand['id']}/accept", json={})
+    r = client.post("/api/export/log").json()
+    assert r["Girraphic"]["rows"] == 2 and r["Other Content"]["rows"] == 1
+    assert r["Girraphic"]["path"].endswith("261008_WK06-TBvDAL log - Girraphic.xlsx")
+    rows = list(load_workbook(r["Girraphic"]["path"])["Log"].iter_rows(values_only=True))
+    head, booth, standings = rows[0], dict(zip(rows[0], rows[1])), dict(zip(rows[0], rows[2]))
+    assert head[:8] == ("Time", "Zone", "Segment", "Shell", "Engine", "Camera", "Notes", "Aired")
+    assert booth["Source"] == "detector" and booth["Segment"] == "Pregame" and booth["Camera"] == "Booth"
+    assert standings["Time"] == "18:25:02" and standings["Zone"] == "ET" and standings["Source"] == "log"
+    assert standings["Segment"] == "1st Half" and standings["Duration (s)"] == 1.0 and standings["Whose"] == "Girraphic"
+    other = dict(zip(*list(load_workbook(r["Other Content"]["path"])["Log"].iter_rows(values_only=True))))
+    assert other["Segment"] == "2nd Half" and other["Whose"] == "NBC design" and other["Source"] == "user"

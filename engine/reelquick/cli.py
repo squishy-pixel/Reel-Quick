@@ -159,6 +159,19 @@ def audio_preview(src, out_dir, at_, seconds) -> None:
     click.echo(f"{len(info.audio)} tracks from {frames_to_tc(info.start_frames + frame, info.rate, info.drop_frame)}")
 
 
+@main.command("export-log")
+@click.argument("game_folder", type=click.Path(exists=True, file_okay=False))
+@click.option("--out", "out_dir", default=None, type=click.Path(file_okay=False), help="Where to write (default: the game folder).")
+def export_log_cmd(game_folder, out_dir) -> None:
+    """Write a game's log as two spreadsheets: Girraphic's work and everyone else's."""
+    from .exports import export_game_log
+    from .project import Project
+    folder = Path(game_folder)
+    done = export_game_log(Project.load(folder / "project.reelquick.json"), Path(out_dir) if out_dir else folder, folder.name)
+    for name, d in done.items():
+        click.echo(f"{name}: {d['rows']} rows  {d['path']}")
+
+
 @main.command("library")
 @click.argument("clips_folder", type=click.Path(exists=True, file_okay=False))
 @click.argument("out_dir", type=click.Path(file_okay=False))
