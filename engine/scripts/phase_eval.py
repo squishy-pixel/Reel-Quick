@@ -360,7 +360,9 @@ def period_end(fr, q, c, core, quarters: tuple[int, ...], state: int, until: int
     return int(fr[qi[-1]]), 0.4, ev
 
 
-def phases(fr, q, c):
+def phases(fr, q, c, shows: dict | None = None):
+    """Boundaries from the readings. shows: from shows-<game>.json; None leaves half_start and game_end at
+    the clock's 0:00 (used by the shows step itself to know where to search)."""
     core = core_mask(fr, q)
     q3 = np.where(core & (q == 3))[0]
     out, conf, ev = {}, {}, {}
@@ -369,6 +371,20 @@ def phases(fr, q, c):
                      ("second_half_kickoff", lambda: kickoff(fr, q, c, core, 3)),
                      ("game_end", lambda: period_end(fr, q, c, core, (4, 5), FINAL))):
         out[name], conf[name], ev[name] = fn()
+    # halftime and the postgame start with their studio shows, after the break that follows 0:00 (STUDIO SHOWS)
+    if shows is not None:
+        for k in SHOW_WORDS:
+            if out[k] is None:
+                continue
+            ev[k]["clock_zero"] = out[k]
+            s = shows.get(k)
+            if s:
+                ev[k]["show"] = s
+                out[k] = s["start"]
+                conf[k] = round(min(conf[k], 0.95 if "black" in s["how"] else 0.8), 2)
+            else:
+                ev[k]["show"] = "not found: the clock's 0:00 is given instead"
+                conf[k] = 0.3
     # program order must hold; a boundary out of order is dropped rather than guessed
     order = ["kickoff", "half_start", "second_half_kickoff", "game_end"]
     prev = -1
@@ -386,20 +402,91 @@ def phases(fr, q, c):
 def cmd_phases(a):
     cache = Path(a.cache)
     d, fr, q, c = load_readings(cache, a.game)
-    out, conf, ev = phases(fr, q, c)
+    sp = cache / f"shows-{a.game}.json"
+    shows = json.loads(sp.read_text(encoding="utf-8")) if sp.exists() else {}
+    out, conf, ev = phases(fr, q, c, shows)
     res = {"version": 1, "source": "scorebug", "recording": Path(d["recording"]).name,
            "nb_frames": d["nb_frames"], **out, "confidence": conf,
-           "evidence": {"method": "phase_eval.py: OCR of quarter and game clock on every keyframe", **ev}}
+           "evidence": {"method": "phase_eval.py: OCR of quarter and game clock on every keyframe; half_start "
+                                  "and game_end are the starts of the halftime and postgame shows after the "
+                                  "break that follows the clock's 0:00", **ev}}
     path = cache / f"{a.game}.phases.json"
     path.write_text(json.dumps(res, indent=2), encoding="utf-8")
     print(json.dumps({k: res[k] for k in ("kickoff", "half_start", "second_half_kickoff", "game_end", "confidence")}))
     if a.truth:
         tr = json.loads(Path(a.truth).read_text(encoding="utf-8")).get(a.game)
         if tr:
-            for k, tk in (("kickoff", "kickoff"), ("half_start", "half_clock0"),
-                          ("second_half_kickoff", "second_half_kickoff"), ("game_end", "end_clock0")):
-                if res[k] is not None and tk in tr:
-                    print(f"  {k:20s} {res[k]:8d}  truth {tr[tk]:8d}  off {(res[k] - tr[tk]) / FPS:+7.1f} s")
+            rows = [("kickoff", res["kickoff"], "kickoff"),
+                    ("half 0:00", ev["half_start"].get("clock_zero", res["half_start"]), "half_clock0"),
+                    ("half_start (show)", res["half_start"], "half_show"),
+                    ("second_half_kickoff", res["second_half_kickoff"], "second_half_kickoff"),
+                    ("end 0:00", ev["game_end"].get("clock_zero", res["game_end"]), "end_clock0"),
+                    ("game_end (show)", res["game_end"], "post_show")]
+            for k, v, tk in rows:
+                if v is not None and tk in tr:
+                    print(f"  {k:20s} {v:8d}  truth {tr[tk]:8d}  off {(v - tr[tk]) / FPS:+7.1f} s")
+
+
+# STUDIO SHOWS (TJ, November 2026): the game crew hands over to the pre/half/post crew in a commercial break,
+# so halftime starts when the halftime show starts after the first break following the 2nd quarter's 0:00,
+# and the postgame likewise. Every show checked opens the same way: a black frame ends the break, then a
+# ~6 s animated open with a large "HALFTIME SHOW" / "POSTGAME SHOW" title card.
+SHOW_WORDS = {"half_start": "HALFTIME", "game_end": "POSTGAME"}
+SHOW_SEARCH = 20 * 60       # s after 0:00 to look for the show's title card
+SHOW_FPS = 2                # frames per second read in that window
+TITLE_MIN_H = 0.08          # title text at least this share of the frame height (lower thirds and the desk
+                            # graphic that also say HALFTIME SHOW are 2-4%)
+BLACK_BACK = 15             # s before the title to look for the black frame that ends the break
+OPEN_LEAD = 6.0             # s from the start of the open to the title card, when no black frame is found
+SW, SH = 640, 360
+
+
+def window_frames(path: str, t0: float, dur: float, fps: float = SHOW_FPS, w: int = SW, h: int = SH):
+    """Grey w x h frames at fps from t0 for dur seconds: (times, frames)."""
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{t0:.3f}", "-t", f"{dur:.3f}", "-i", path,
+                          "-map", "0:v:0", "-vf", f"fps={fps},scale={w}:{h},format=gray",
+                          "-f", "rawvideo", "-"], capture_output=True, check=True).stdout
+    fr = np.frombuffer(raw, np.uint8).reshape(-1, h, w)
+    return t0 + np.arange(len(fr)) / fps, fr
+
+
+def find_show(path: str, rd: Reader, zero_frame: int, word: str) -> dict | None:
+    """Start of the studio show after the first break following zero_frame (see STUDIO SHOWS)."""
+    t0 = zero_frame / FPS
+    step = 120.0                                       # read the window in 2-minute pieces, stop at the title
+    for k in range(int(SHOW_SEARCH / step)):
+        ts, frs = window_frames(path, t0 + k * step, step)
+        for t, img in zip(ts, frs):
+            for b, s, cf in rd.tokens(img):
+                if word in s.upper().replace(" ", "") and (b[3] - b[1]) >= TITLE_MIN_H * SH:
+                    # back to the black frame that ends the break, at 30 fps since it can be a few frames
+                    bt, bf = window_frames(path, t - BLACK_BACK, BLACK_BACK, fps=30, w=160, h=90)
+                    y = bf.reshape(len(bf), -1).astype(np.float32)
+                    black = np.where((np.median(y, 1) < 20) & (y.std(1) < 8))[0]
+                    if len(black):
+                        start, how = bt[black[-1]] + 1 / 30, "after the black frame ending the break"
+                    else:
+                        start, how = t - OPEN_LEAD, f"title card minus {OPEN_LEAD} s (no black frame found)"
+                    return {"start": int(round(start * FPS)), "title": int(round(t * FPS)), "how": how,
+                            "text": s}
+    return None
+
+
+def cmd_shows(a):
+    """Find the halftime and postgame shows' starts; writes shows-<game>.json, which phases then uses."""
+    cache = Path(a.cache)
+    d, fr, q, c = load_readings(cache, a.game)
+    _, _, ev = phases(fr, q, c, shows=None)
+    rd = Reader()
+    out = {}
+    for k, word in SHOW_WORDS.items():
+        z = ev[k].get("first_zero") or ev[k].get("first_state")
+        if z is None:
+            out[k] = None
+            continue
+        out[k] = find_show(d["recording"], rd, z, word)
+        print(k, out[k], flush=True)
+    (cache / f"shows-{a.game}.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
 
 
 def cmd_dump(a):
@@ -422,12 +509,15 @@ def main():
     d.add_argument("--cache", required=True)
     d.add_argument("--from", dest="frm", type=int, default=0)
     d.add_argument("--to", type=int, default=10**9)
+    w = sub.add_parser("shows", help="find the halftime / postgame show starts (after scan; before phases)")
+    w.add_argument("--game", required=True)
+    w.add_argument("--cache", required=True)
     f = sub.add_parser("phases")
     f.add_argument("--game", required=True)
     f.add_argument("--cache", required=True)
     f.add_argument("--truth", help="JSON of boundaries checked by eye, to print how far off each one is")
     a = p.parse_args()
-    {"scan": cmd_scan, "dump": cmd_dump, "phases": cmd_phases}[a.cmd](a)
+    {"scan": cmd_scan, "dump": cmd_dump, "phases": cmd_phases, "shows": cmd_shows}[a.cmd](a)
 
 
 if __name__ == "__main__":

@@ -72,10 +72,13 @@ overrides when needed:
 
 - No game clock seen yet: `pre`.
 - Kickoff: the first frames of the 1st quarter with the clock running.
-- Halftime: the 2nd quarter has ended (clock 0:00 in Q2, then no bug, or the
-  studio, for a stretch).
+- Halftime: starts with the halftime show, after the first commercial break
+  following the 2nd quarter's 0:00. The game crew hands over to the
+  pre/half/post crew in that break, so the coverage between 0:00 and the
+  break is still `game` (TJ, November 2026).
 - Second-half kickoff: the first frames of the 3rd quarter.
-- End of game: the 4th quarter (or overtime) has ended; after that it is `post`.
+- End of game: likewise, `post` starts with the postgame show after the
+  first break following the last quarter's (or overtime's) 0:00.
 
 The detector looks near each sample for the bug rather than trusting a single
 frame, since the bug drops out for replays, graphics and breaks.
@@ -110,8 +113,10 @@ and ignored, so the detector can add evidence freely.
 }
 ```
 
-Any boundary not found is `null`. `half_start` is where halftime begins (the
-first half has ended). The app treats these as suggestions: a boundary the
+Any boundary not found is `null`. `half_start` is the first frame of the
+halftime show and `game_end` the first frame of the postgame show, each
+after the commercial break that follows the clock's 0:00; the 0:00 frames
+are in `evidence` (`clock_zero`). The app treats these as suggestions: a boundary the
 operator has set by hand is never overwritten.
 
 **Candidate segments** (`<game>.candidates.json`), for step 4:
@@ -696,39 +701,65 @@ between restarts, so look the drive up by name.
      readings that leads into a running clock (two readings in a row below
      15:00). Take its first reading, minus 3.5 s for the bug to wipe on,
      minus any time already run off. The 3.5 s was set on WK06 only.
-   - **Half start and game end:** the first 0:00 in the 2nd (or last,
+   - **End of each half (0:00):** the first 0:00 in the 2nd (or last,
      overtime included) quarter that holds, meaning most of the next 6
      readings are 0:00 too. It is confirmed by HALF / FINAL within 10 min.
-     Without a held 0:00, the boundary is the first HALF / FINAL after the
+     Without a held 0:00, the end is the first HALF / FINAL after the
      clock was last seen above 2:00. The first half's search stops where the
      3rd quarter starts, so bugs in later highlights cannot move it.
    - A boundary out of program order is left `null` rather than guessed.
+4. **Halftime and postgame start with their shows** (`phase_eval.py shows`,
+   run after `scan` and before `phases`). From each 0:00 it reads up to
+   20 min of the recording at 2 frames a second until OCR finds the show's
+   title card: "HALFTIME" or "POSTGAME" in letters at least 8% of the
+   frame high. Lower thirds and the desk graphic carry the same words
+   smaller, so the size rule keeps them out. It then steps back up to 15 s
+   at 30 frames a second to the last black frame, which ends the break; the
+   boundary is the frame after it. Without a black frame it would take the
+   title minus 6 s, but every case so far had one. A show not found leaves
+   the 0:00 with confidence 0.3. Results go in `shows-<game>.json`.
 
 ### Results
 
 True boundaries, by eye: a kick is the frame the kicker strikes the ball,
-and an end is the frame the clock reaches 0:00. They are accurate to about
-0.5 s.
+and a 0:00 is the frame the clock reaches 0:00, both accurate to about
+0.5 s. A show start is the first frame of the show's open.
 
 | Game | Boundary | Detected | True | Off |
 |---|---|---|---|---|
 | WK04 | kickoff | 279090 | 279090 | 0.0 s |
-| | half_start | 578970 | 578950 | +0.3 s |
+| | 2nd quarter 0:00 | 578970 | 578950 | +0.3 s |
+| | **half_start** (halftime show) | 591807 | 591807 | within 0.75 s |
 | | second_half_kickoff | 631170 | 631130 | +0.7 s |
-| | game_end | 932220 | 932200 | +0.3 s |
+| | 4th quarter 0:00 | 932220 | 932200 | +0.3 s |
+| | **game_end** (postgame show) | 951049 | 951049 | within 0.75 s |
 | WK06 | kickoff | 280680 | 280610 | +1.2 s |
-| | half_start | 562320 | 562250 | +1.2 s |
+| | 2nd quarter 0:00 | 562320 | 562250 | +1.2 s |
+| | **half_start** (halftime show) | 576114 | 576114 | within 0.75 s |
 | | second_half_kickoff | 612360 | 612350 | +0.2 s |
-| | game_end | 926280 | 926250 | +0.5 s |
+| | 4th quarter 0:00 | 926280 | 926250 | +0.5 s |
+| | **game_end** (postgame show) | 936987 | 936987 | within 0.75 s |
 | WK11 (720p) | kickoff | 347860 | 347830 | +0.5 s |
-| | half_start | 622750 | 622690 | +1.0 s |
+| | 2nd quarter 0:00 | 622750 | 622690 | +1.0 s |
+| | **half_start** (halftime show) | 635523 | 635523 | within 0.75 s |
 | | second_half_kickoff | 678550 | not shown | — |
-| | game_end | 958000 | 957840 | +2.7 s |
+| | 4th quarter 0:00 | 958000 | 957840 | +2.7 s |
+| | **game_end** (postgame show) | 969277 | 969277 | within 0.75 s |
 
-- **All 11 checkable boundaries are within 2.7 s, and 8 are within 1 s.**
-  The worst is WK11's game end: at 720p the bug's 0:00 was never read, so
-  the first FINAL stands in. Its confidence is 0.7; all the others are
-  0.95.
+- **The show starts were checked, not measured independently.** I looked
+  at sheets 0.75 s apart around each detected start. All six fall on the
+  cut from the break's last black frame to the show's open, so the truth
+  column repeats the detected frame and "within 0.75 s" is the check's
+  resolution.
+- **The clock boundaries: all 11 that can be checked are within 2.7 s, and
+  8 within 1 s.** The worst is WK11's final 0:00: at 720p the bug's 0:00
+  was never read, so the first FINAL stands in. Its confidence is 0.7.
+  Every boundary in the files has confidence 0.95 except WK11's `game_end`
+  (0.7, inherited from that 0:00).
+- **From 0:00 to the show is 3–5 minutes**, coverage plus break: 3.6 min
+  at WK04's half, 3.8 at WK06's and 3.6 at WK11's; 5.2, 3.0 and 3.1 min at
+  the ends. Clips cut there are now `game`, as TJ
+  set out.
 - **How independent the test is.** The rules were written while looking at
   WK06's and WK11's readings. WK04 was scanned last and went through the
   finished rules unchanged; only the kickoff confidence was relaxed
@@ -766,17 +797,12 @@ and an end is the frame the clock reaches 0:00. They are accurate to about
   call for both boxes, or reading only every few keyframes until the bug
   is seen, would cut it. Not timed precisely.
 
-### For TJ: where does halftime start?
-
-The detector gives the moment the clock hits 0:00 (`half_start`,
-`game_end`). The game coverage goes on after that before the break: the
-HALF bug, players leaving, a coach interview, "Halftime Show coming up
-next". On WK06 that is 80 s at the half (0:00 at 562250, break at 567020)
-and 33 s at the end (926250, break at 928220). Clips there are presumably
-game-group work, which suggests the boundary should be the cut to the
-break. If so, the detector can move it to the last frame of game coverage
-before the first break, using the end of the HALF / FINAL readings plus the
-picture test for the break. Not built yet.
+- **Every halftime and postgame show opens the same way**: the break ends
+  on a black frame, then a few seconds of animated open with "HALFTIME" /
+  "POSTGAME" in large type and a title card ("State Farm Halftime Show",
+  "JCPenney Postgame Show"). WK04's halftime open was read on its first
+  frames, the others about 4–5 s in; the step back to the black frame
+  makes them land alike.
 
 ## Findings: candidates file (WK06)
 
@@ -816,8 +842,7 @@ alarms, camera 5 / 6 with 6).
    `Other Content` folder, and a settable output folder with a size estimate
    and free-space check (cloud session). In parallel, phase boundaries from
    the score bug (PC), handed over as `<game>.phases.json`: done for WK04,
-   WK06 and WK11, see Findings: phase from the score bug. Open: whether
-   halftime starts at 0:00 or at the cut to the break.
+   WK06 and WK11, see Findings: phase from the score bug.
 4. Candidate markers in the app (a new marker source beside `log` and `user`),
    with the what, whose and phase labels, and owner-aware naming and folders.
    `<game>.candidates.json` exists for WK06 (Findings: candidates file).
