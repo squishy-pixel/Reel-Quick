@@ -151,6 +151,11 @@ class CandidateAccept(BaseModel):
     label: str | None = None
 
 
+class ReelBody(BaseModel):
+    out_dir: str | None = None       # default: <output root or work root>/Reel
+    render_missing: bool = True      # render a review MP4 for clips that have no web MP4 yet
+
+
 class PhasesImport(BaseModel):
     """A detector's <game>.phases.json, as parsed JSON."""
     data: dict
@@ -801,6 +806,43 @@ def create_app(session: Session | None = None) -> FastAPI:
         except RuntimeError as e:
             raise HTTPException(409, str(e))
         return job.to_dict()
+
+    @app.post("/api/export/log")
+    def export_log():
+        """This game's log as two spreadsheets, Girraphic's and everyone else's, in its output folder."""
+        w = ws()
+        from .exports import export_game_log
+        try:
+            return export_game_log(w.project, w.clips_dir, w.root.name)
+        except OSError as e:
+            raise HTTPException(500, f"could not write the log: {e}")
+
+    @app.post("/api/season/report")
+    def season_report_ep():
+        """The season report across every game in the work folder, written next to the games' outputs."""
+        from .season import default_report_path, season_report
+        prefs = load_prefs(session.work_root)
+        base = Path(prefs.get("output_root") or session.work_root)
+        try:
+            return season_report(session.work_root, default_report_path(base))
+        except OSError as e:
+            raise HTTPException(500, f"could not write the report: {e}")
+
+    @app.post("/api/jobs/reel")
+    def job_reel(body: ReelBody):
+        """Build the web reel from every game in the work folder (a job: rendering missing MP4s takes a while)."""
+        from .reel import build_reel
+        prefs = load_prefs(session.work_root)
+        out = Path(body.out_dir) if body.out_dir else Path(prefs.get("output_root") or session.work_root) / "Reel"
+
+        def run(progress, cancel):
+            return build_reel(session.work_root, out, render_missing=body.render_missing, on_progress=progress, cancel=cancel)
+
+        try:
+            job = jobs.start("reel", "Web reel", run)
+        except RuntimeError as e:
+            raise HTTPException(409, str(e))
+        return {**job.to_dict(), "out_dir": str(out)}
 
     @app.post("/api/render/estimate")
     def render_estimate(body: RenderBody):

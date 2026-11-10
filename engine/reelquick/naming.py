@@ -51,6 +51,8 @@ def slug(text: str) -> str:
 
 def build_name(game: GameInfo, seq: int, shell: str = "", desc: str = "", pattern: str = DEFAULT_PATTERN,
                camera: str = "", engine: str = "", phase: str = "") -> str:
+    if camera and slug(camera).lower() == slug(shell).lower():
+        camera = ""            # a booth shot is just "Booth", not "Booth_Booth"
     fields = {
         "phase": PHASE_NAMES.get(phase, slug(phase)),
         "camera": slug(camera),

@@ -159,6 +159,50 @@ def audio_preview(src, out_dir, at_, seconds) -> None:
     click.echo(f"{len(info.audio)} tracks from {frames_to_tc(info.start_frames + frame, info.rate, info.drop_frame)}")
 
 
+@main.command("export-log")
+@click.argument("game_folder", type=click.Path(exists=True, file_okay=False))
+@click.option("--out", "out_dir", default=None, type=click.Path(file_okay=False), help="Where to write (default: the game folder).")
+def export_log_cmd(game_folder, out_dir) -> None:
+    """Write a game's log as two spreadsheets: Girraphic's work and everyone else's."""
+    from .exports import export_game_log
+    from .project import Project
+    folder = Path(game_folder)
+    done = export_game_log(Project.load(folder / "project.reelquick.json"), Path(out_dir) if out_dir else folder, folder.name)
+    for name, d in done.items():
+        click.echo(f"{name}: {d['rows']} rows  {d['path']}")
+
+
+@main.command("season-report")
+@click.option("--work", default=None, type=click.Path(file_okay=False), help="Work folder holding the games (default ~/Videos/ReelQuick).")
+@click.option("--out", default=None, type=click.Path(dir_okay=False), help="Report file (default: in the work folder).")
+def season_report_cmd(work, out) -> None:
+    """Count every game in the work folder: ours against everyone else's, by shell, segment and week."""
+    from .season import default_report_path, season_report
+    from .workspace import default_work_root
+    root = Path(work) if work else default_work_root()
+    r = season_report(root, Path(out) if out else default_report_path(root))
+    click.echo(f"{r['games']} games, {r['clips']} clips: {r['ours']} ours, {r['others']} others'  ({', '.join(r['seasons'])})")
+    click.echo(r["path"])
+
+
+@main.command("reel")
+@click.option("--work", default=None, type=click.Path(file_okay=False), help="Work folder holding the games (default ~/Videos/ReelQuick).")
+@click.option("--out", default=None, type=click.Path(file_okay=False), help="Reel folder (default: Reel in the work folder).")
+@click.option("--no-render", is_flag=True, help="Only use MP4s already rendered; skip clips that have none.")
+def reel_cmd(work, out, no_render) -> None:
+    """Build the web reel: every clip of every game, as a folder that plays in any browser."""
+    from .reel import build_reel
+    from .workspace import default_work_root
+    root = Path(work) if work else default_work_root()
+    bar = _Bar("reel")
+    r = build_reel(root, Path(out) if out else root / "Reel", render_missing=not no_render, on_progress=bar)
+    click.echo(f"{r['clips']} clips from {r['games']} games ({r['built_games']} built now, {r['kept_games']} kept); "
+               f"{r['rendered']} MP4s rendered")
+    for s in r["skipped"][:20]:
+        click.echo(f"skipped {s}", err=True)
+    click.echo(str(Path(r["out_dir"]) / "index.html"))
+
+
 @main.command("library")
 @click.argument("clips_folder", type=click.Path(exists=True, file_okay=False))
 @click.argument("out_dir", type=click.Path(file_okay=False))

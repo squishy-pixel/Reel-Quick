@@ -52,6 +52,8 @@ ffmpeg lookup order is in `ffmpeg.py:_candidate_dirs`: `REELQUICK_FFMPEG_DIR`, t
 
 **Detector suggestions.** `project.candidates` holds a `<game>.candidates.json` (format in `docs/DETECTION.md`, Interfaces), imported through `/api/candidates/import`. Each suggestion is pending, accepted or dismissed, and is identified by its span, so a re-import keeps decisions already made. Accepting one (`/api/candidates/{id}/accept`, optionally as one of its look-alikes) makes a clip. Every step goes through undo, and the app's Suggested tab steps through them with N / A / D.
 
+**Outputs beyond clips.** `exports.py` builds the per-game logs: `clip_row()` gives one record per clip, the shared base for every export. `season.py` aggregates every project in the work root; its `season_of()` puts January and February in the year before. `reel.py` writes the static web reel. Its `index.html` is `reelquick/reel_index.html`, plain HTML/JS with no build step. `catalog.js` is loaded by a script tag, so the page works from `file://`, and a rebuild keeps catalog games that are no longer in the work root.
+
 **Preferences** (keyboard bindings, the output root, small UI state) live in `<work root>/prefs.json` via `prefs.py` and `PUT /api/prefs`, not in browser storage. The app window starts in private mode on a new port every launch, so `localStorage` does not survive a restart. Actions and default keys are in `app/src/shortcuts.ts`; tooltips use `tip()` so they show the live binding.
 
 **Jobs.** Long work (filmstrip, proxy, render) runs through `jobs.JobManager` as `fn(progress_cb, cancel_event)`. `run_ffmpeg` turns ffmpeg's `out_time` into a 0–1 fraction and kills the process when the event is set.

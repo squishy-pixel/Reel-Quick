@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Girraphic Reel</title>
+<style>
+  :root { --bg: #16181b; --panel: #1e2125; --line: #2c3036; --text: #f4f5f5; --grey: #a3a9b0; --dim: #6d737a; --yellow: #feb404; --blue: #608ce6; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { position: sticky; top: 0; z-index: 5; background: rgba(22,24,27,0.96); backdrop-filter: blur(6px); border-bottom: 1px solid var(--line); padding: 12px 16px 10px; }
+  h1 { margin: 0 0 10px; font-size: 15px; letter-spacing: 0.14em; text-transform: uppercase; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  h1::before { content: ""; width: 3px; height: 14px; background: var(--yellow); display: inline-block; align-self: center; }
+  h1 .count { color: var(--grey); font-weight: 400; letter-spacing: 0; text-transform: none; font-size: 13px; }
+  .filters { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+  select, input { width: 100%; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 7px 8px; font: inherit; font-size: 13px; }
+  input::placeholder { color: var(--dim); }
+  main { padding: 14px 16px 40px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; cursor: pointer; text-align: left; color: inherit; padding: 0; font: inherit; }
+  .card:hover, .card:focus-visible { border-color: var(--yellow); outline: none; }
+  .thumb { position: relative; aspect-ratio: 16 / 9; background: #0d0e10; }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .dur { position: absolute; right: 6px; bottom: 6px; background: rgba(0,0,0,0.75); padding: 1px 6px; border-radius: 3px; font-size: 12px; font-variant-numeric: tabular-nums; }
+  .badge { position: absolute; left: 6px; top: 6px; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; padding: 1px 6px; border-radius: 3px; background: rgba(0,0,0,0.75); border: 1px dashed var(--grey); color: var(--grey); }
+  .meta { padding: 8px 10px 10px; }
+  .meta .shell { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meta .sub { color: var(--grey); font-size: 12px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .seg { color: var(--blue); }
+  .empty { color: var(--grey); text-align: center; padding: 60px 16px; }
+  /* the player */
+  .overlay { position: fixed; inset: 0; z-index: 10; background: rgba(0,0,0,0.88); display: none; align-items: center; justify-content: center; padding: 16px; }
+  .overlay.open { display: flex; }
+  .player { width: min(1100px, 100%); max-height: 100%; display: grid; grid-template-rows: auto auto; gap: 10px; }
+  video { width: 100%; max-height: 72vh; background: #000; border-radius: 4px; }
+  .info { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+  .info .what { flex: 1; min-width: 200px; }
+  .info .name { font-weight: 600; word-break: break-all; }
+  .info .details { color: var(--grey); font-size: 13px; margin-top: 3px; }
+  .btn { background: transparent; color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 7px 12px; font: inherit; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; text-decoration: none; display: inline-block; }
+  .btn:hover { border-color: var(--yellow); }
+  .btn.primary { background: var(--yellow); color: #1e1e1e; border-color: var(--yellow); font-weight: 700; }
+  .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  @media (max-width: 600px) {
+    .grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+    .overlay { padding: 0; align-items: flex-start; background: #000; overflow-y: auto; }
+    .player { padding: 10px; }
+    video { border-radius: 0; max-height: 45vh; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Girraphic Reel <span class="count" id="count"></span></h1>
+  <div class="filters">
+    <select id="season" aria-label="Season"></select>
+    <select id="game" aria-label="Game"></select>
+    <select id="shell" aria-label="Type"></select>
+    <select id="segment" aria-label="Segment"></select>
+    <select id="whose" aria-label="Whose">
+      <option value="ours">Girraphic</option><option value="others">Everyone else</option><option value="">Everything</option>
+    </select>
+    <select id="sort" aria-label="Sort">
+      <option value="game">Game order</option><option value="newest">Newest first</option>
+      <option value="shell">By type</option><option value="longest">Longest first</option>
+    </select>
+    <input id="q" type="search" placeholder="Search names, notes…" aria-label="Search">
+  </div>
+</header>
+<main><div class="grid" id="grid"></div><div class="empty" id="empty" hidden>Nothing matches these filters.</div></main>
+
+<div class="overlay" id="overlay" role="dialog" aria-modal="true">
+  <div class="player">
+    <video id="video" controls playsinline preload="metadata"></video>
+    <div class="info">
+      <div class="what"><div class="name" id="pname"></div><div class="details" id="pdetails"></div></div>
+      <div class="actions">
+        <button class="btn" id="prev" title="Previous (←)">◀ Prev</button>
+        <button class="btn" id="next" title="Next (→)">Next ▶</button>
+        <a class="btn primary" id="download" download>Download</a>
+        <button class="btn" id="close" title="Close (Esc)">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="catalog.js"></script>
+<script>
+(function () {
+  "use strict";
+  var REEL = window.REEL || { games: {}, clips: [] };
+  var games = REEL.games || {}, clips = REEL.clips || [];
+  var $ = function (id) { return document.getElementById(id); };
+  var SEGMENTS = ["Pregame", "1st Half", "Halftime", "2nd Half", "Postgame"];
+  var WHOSE = { ours: "Girraphic", nbc: "NBC design", other: "Other contributor" };
+  var shown = [], current = -1;
+
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+  function fill(sel, values, all) {
+    var keep = sel.value; sel.innerHTML = "";
+    sel.appendChild(new Option(all, ""));
+    values.forEach(function (v) { sel.appendChild(new Option(v[1], v[0])); });
+    sel.value = values.some(function (v) { return v[0] === keep; }) ? keep : "";
+  }
+  function dur(s) { s = Math.round(s); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); }
+  function gameLabel(c) { var g = games[c.game] || {}; return g.label || c.game; }
+  function uniq(a) { return a.filter(function (v, i) { return v && a.indexOf(v) === i; }); }
+
+  // filters live in the address, so a filtered view can be bookmarked or sent as a link
+  function readHash() {
+    var p = new URLSearchParams(location.hash.slice(1));
+    ["season", "game", "shell", "segment", "sort", "q"].forEach(function (k) { if (p.has(k)) $(k).value = p.get(k); });
+    if (p.has("whose")) $("whose").value = p.get("whose");
+  }
+  function writeHash() {
+    var p = new URLSearchParams();
+    ["season", "game", "shell", "segment", "whose", "sort", "q"].forEach(function (k) { if ($(k).value) p.set(k, $(k).value); });
+    history.replaceState(null, "", "#" + p.toString());
+  }
+
+  function options() {
+    var seasons = uniq(clips.map(function (c) { return c.season; })).sort().reverse();
+    fill($("season"), seasons.map(function (s) { return [s, s + " season"]; }), "All seasons");
+    var inSeason = clips.filter(function (c) { return !$("season").value || c.season === $("season").value; });
+    var gids = uniq(inSeason.map(function (c) { return c.game; })).sort(function (a, b) { return ((games[a] || {}).date || "").localeCompare((games[b] || {}).date || ""); });
+    fill($("game"), gids.map(function (g) { var m = games[g] || {}; return [g, (m.label || g) + (m.date ? "  ·  " + m.date : "")]; }), "All games");
+    fill($("shell"), uniq(inSeason.map(function (c) { return c.shell; })).sort().map(function (s) { return [s, s]; }), "All types");
+    fill($("segment"), SEGMENTS.filter(function (s) { return inSeason.some(function (c) { return c.segment === s; }); }).map(function (s) { return [s, s]; }), "All segments");
+  }
+
+  function render() {
+    var f = { season: $("season").value, game: $("game").value, shell: $("shell").value, segment: $("segment").value, whose: $("whose").value, q: $("q").value.trim().toLowerCase() };
+    shown = clips.filter(function (c) {
+      if (f.season && c.season !== f.season) return false;
+      if (f.game && c.game !== f.game) return false;
+      if (f.shell && c.shell !== f.shell) return false;
+      if (f.segment && c.segment !== f.segment) return false;
+      if (f.whose === "ours" && c.whose !== "ours") return false;
+      if (f.whose === "others" && c.whose === "ours") return false;
+      if (f.q && [c.name, c.desc, c.shell, c.camera, gameLabel(c)].join(" ").toLowerCase().indexOf(f.q) < 0) return false;
+      return true;
+    });
+    var s = $("sort").value;
+    shown.sort(function (a, b) {
+      if (s === "newest") return (b.date || "").localeCompare(a.date || "") || a.in_frame - b.in_frame;
+      if (s === "shell") return (a.shell || "").localeCompare(b.shell || "") || (a.date || "").localeCompare(b.date || "");
+      if (s === "longest") return b.duration - a.duration;
+      return (a.date || "").localeCompare(b.date || "") || a.game.localeCompare(b.game) || a.in_frame - b.in_frame;
+    });
+    var grid = $("grid"); grid.innerHTML = "";
+    shown.forEach(function (c, i) {
+      var card = el("button", "card"); card.type = "button";
+      var th = el("div", "thumb"); var img = el("img"); img.loading = "lazy"; img.alt = ""; img.src = c.thumb; th.appendChild(img);
+      th.appendChild(el("span", "dur", dur(c.duration)));
+      if (c.whose !== "ours") th.appendChild(el("span", "badge", c.whose === "nbc" ? "NBC" : "Other"));
+      var meta = el("div", "meta");
+      meta.appendChild(el("div", "shell", c.shell || c.name));
+      var sub = el("div", "sub"); sub.appendChild(document.createTextNode(gameLabel(c) + (c.segment ? " · " : "")));
+      if (c.segment) sub.appendChild(el("span", "seg", c.segment));
+      if (c.desc) sub.appendChild(document.createTextNode(" · " + c.desc));
+      meta.appendChild(sub);
+      card.appendChild(th); card.appendChild(meta);
+      card.addEventListener("click", function () { open(i); });
+      grid.appendChild(card);
+    });
+    $("empty").hidden = shown.length > 0;
+    var ng = Object.keys(games).length;
+    $("count").textContent = shown.length + " of " + clips.length + " clips · " + ng + (ng === 1 ? " game" : " games");
+    writeHash();
+  }
+
+  function open(i) {
+    if (i < 0 || i >= shown.length) return;
+    current = i; var c = shown[i];
+    var v = $("video"); v.src = c.video; v.play().catch(function () {});
+    $("pname").textContent = c.name;
+    $("pdetails").textContent = [gameLabel(c), (games[c.game] || {}).date, c.segment, c.shell, c.camera, WHOSE[c.whose] || c.whose,
+      c.time ? c.time + (c.zone ? " " + c.zone : "") : c.tc, dur(c.duration), c.desc].filter(Boolean).join("  ·  ");
+    var a = $("download"); a.href = c.video; a.setAttribute("download", c.name + ".mp4");
+    $("overlay").classList.add("open");
+  }
+  function close() { var v = $("video"); v.pause(); v.removeAttribute("src"); v.load(); $("overlay").classList.remove("open"); current = -1; }
+
+  ["season"].forEach(function (k) { $(k).addEventListener("change", function () { options(); render(); }); });
+  ["game", "shell", "segment", "whose", "sort"].forEach(function (k) { $(k).addEventListener("change", render); });
+  $("q").addEventListener("input", render);
+  $("close").addEventListener("click", close);
+  $("prev").addEventListener("click", function () { open(current - 1); });
+  $("next").addEventListener("click", function () { open(current + 1); });
+  $("overlay").addEventListener("click", function (e) { if (e.target === $("overlay")) close(); });
+  document.addEventListener("keydown", function (e) {
+    if (current < 0 || e.target.tagName === "INPUT") return;
+    if (e.key === "Escape") close();
+    else if (e.key === "ArrowRight") open(current + 1);
+    else if (e.key === "ArrowLeft") open(current - 1);
+  });
+
+  options(); readHash(); options(); readHash(); render();
+})();
+</script>
+</body>
+</html>

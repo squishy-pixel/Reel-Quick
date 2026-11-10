@@ -71,3 +71,9 @@ def test_project_round_trip(info, tmp_path):
     spec = again.clip_spec(again.clips[1])
     assert spec.fmt == OutputFormat.PRORES and spec.head_frames == 120 and spec.audio_tracks == (7, 8) and spec.include_surround
     assert json.loads(p.read_text())["version"] == 2
+
+
+def test_camera_that_repeats_the_shell_is_left_out_of_the_name():
+    g = GameInfo("261008", "WK06", "TB", "DAL")
+    assert build_name(g, 3, "Booth", camera="Booth", phase="game") == "261008_WK06-TBvDAL_03_Game_Booth"
+    assert build_name(g, 4, "Match-Up", camera="Drone", phase="pre") == "261008_WK06-TBvDAL_04_Pre_Match-Up_Drone"
