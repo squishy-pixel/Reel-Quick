@@ -13,13 +13,20 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from .markers import Marker
-from .naming import DEFAULT_PATTERN, OLD_PATTERNS, GameInfo, build_name
+from .naming import DEFAULT_PATTERN, OLD_PATTERNS, PHASE_NAMES, GameInfo, build_name, folder_name
 from .probe import MediaInfo
 from .render import ClipSpec, OutputFormat, output_extension
 from .stills import grab_still
 from .timecode import frames_to_tc
 
 PROJECT_VERSION = 2
+
+# Broadcast boundaries, in program order. The four game boundaries split the show into pre / game / half /
+# game / post; the anthem window is kept for the fireworks rule (anthem fireworks are not ours).
+PHASE_BOUNDARIES = ("kickoff", "half_start", "second_half_kickoff", "game_end")
+BOUNDARIES = ("anthem_in", "anthem_out", *PHASE_BOUNDARIES)
+PHASES = tuple(PHASE_NAMES)                  # pre, game, half, post
+WHOSE = ("ours", "nbc", "other")             # ours: Girraphic; nbc: NBC design; other: any other contributor
 
 
 @dataclass
@@ -39,6 +46,8 @@ class ClipEntry:
     extra_stills: list[int] = field(default_factory=list)   # more frames from this clip, numbered after the first
     rendered: dict = field(default_factory=dict)   # format -> path, plus "still" -> path
     notes: str = ""
+    phase: str = ""                         # "" follows the broadcast boundaries; or pre / game / half / post by hand
+    whose: str = "ours"                     # ours / nbc / other: anything not ours is filed in Other Content
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -93,7 +102,9 @@ class Settings:
     default_head_seconds: float = 2.0
     default_tail_seconds: float = 2.0
     log_offset_seconds: float = -3 * 3600     # Eastern log, Pacific timecode
-    output_dir: str = ""
+    output_dir: str = ""                      # this game's output folder; "" uses the app's output root
+    file_by_type: bool = True                 # one folder per content type (shell or camera) under the output folder
+    other_folder: str = "Other Content"       # where content that is not ours goes, beside the type folders
 
 
 @dataclass
@@ -105,7 +116,58 @@ class Project:
     markers: list[Marker] = field(default_factory=list)
     clips: list[ClipEntry] = field(default_factory=list)
     stills: list[StillEntry] = field(default_factory=list)
+    # boundary -> {"frame": int | None, "source": "user" | detector name}; see PHASE_BOUNDARIES
+    phases: dict = field(default_factory=dict)
     version: int = PROJECT_VERSION
+
+    # ---- broadcast phases ----------------------------------------------------
+
+    def boundary(self, key: str) -> int | None:
+        b = self.phases.get(key) or {}
+        return b.get("frame") if isinstance(b.get("frame"), int) else None
+
+    def phase_of(self, frame: int) -> str:
+        """pre / game / half / post at this frame, or "" while the boundaries cannot say."""
+        k, h, s2, end = (self.boundary(x) for x in PHASE_BOUNDARIES)
+        if end is not None and frame >= end:
+            return "post"
+        if s2 is not None and frame >= s2:
+            return "game"
+        if h is not None and frame >= h:
+            return "half"
+        if k is not None:
+            return "game" if frame >= k else "pre"
+        return ""
+
+    def clip_phase(self, clip: "ClipEntry") -> str:
+        return clip.phase if clip.phase in PHASES else self.phase_of(clip.in_frame)
+
+    def set_boundaries(self, values: dict, source: str, keep_user: bool = True) -> list[str]:
+        """Set boundaries (None clears one). A detector's suggestion never replaces one set by hand.
+        Returns the boundaries that changed."""
+        changed = []
+        for key, frame in values.items():
+            if key not in BOUNDARIES:
+                continue
+            if frame is not None and not (isinstance(frame, int) and 0 <= frame < self.info.nb_frames):
+                raise ValueError(f"{key}: frame {frame} is outside the recording")
+            current = self.phases.get(key) or {"frame": None, "source": ""}     # unset and empty are the same
+            if keep_user and source != "user" and current.get("source") == "user" and current.get("frame") is not None:
+                continue
+            new = {"frame": frame, "source": source if frame is not None else ""}
+            if current != new:
+                self.phases[key] = new
+                changed.append(key)
+        return changed
+
+    def clip_folder(self, clip: "ClipEntry", base: str | Path) -> Path:
+        """Where a clip's files go: Other Content for anything not ours, else a folder per content type."""
+        base = Path(base)
+        if clip.whose != "ours":
+            return base / (folder_name(self.settings.other_folder) or "Other Content")
+        if not self.settings.file_by_type:
+            return base
+        return base / (folder_name(clip.shell or clip.camera) or "Unsorted")
 
     # ---- clips -------------------------------------------------------------
 
@@ -127,7 +189,8 @@ class Project:
             head_seconds=self.settings.default_head_seconds,
             tail_seconds=self.settings.default_tail_seconds,
         )
-        clip.name = name or build_name(self.game, seq, shell, desc, self.settings.name_pattern, camera, engine)
+        clip.name = name or build_name(self.game, seq, shell, desc, self.settings.name_pattern, camera, engine,
+                                       self.phase_of(in_frame))
         self.clips.append(clip)
         return clip
 
@@ -144,7 +207,8 @@ class Project:
         """Sort clips by in point and rebuild names that follow the pattern."""
         self.clips.sort(key=lambda c: c.in_frame)
         for seq, c in enumerate(self.clips, start=1):
-            c.name = build_name(self.game, seq, c.shell, c.desc, self.settings.name_pattern, c.camera, c.engine)
+            c.name = build_name(self.game, seq, c.shell, c.desc, self.settings.name_pattern, c.camera, c.engine,
+                                self.clip_phase(c))
 
     def add_still(self, frame: int, name: str) -> StillEntry:
         """A still with a name typed by hand, not tied to a clip."""
@@ -168,6 +232,25 @@ class Project:
         if fmt == "mp4" and quality != "review":
             return f"{clip.name}_{quality}"
         return clip.name
+
+    def estimate_bytes(self, clip: ClipEntry, formats: list[str] | None = None, mp4_quality: str | None = None,
+                       stills: bool = True, info: MediaInfo | None = None) -> int:
+        """Disk a render of this clip will take: every format with its handles, plus its stills."""
+        from .estimate import STILL_BYTES, audio_bps, video_bps
+        info = info or self.info
+        fps = float(self.info.rate.fps)
+        lo, hi = clip.padded_range(fps)
+        seconds = (min(self.info.nb_frames, hi) - max(0, lo)) / fps
+        total = 0.0
+        for fmt in formats if formats is not None else clip.formats:
+            surround = self.settings.surround_in_mp4 if fmt == "mp4" else self.settings.surround_in_mov
+            v = video_bps(info, fmt, self.settings.prores_profile, mp4_quality or self.settings.mp4_quality,
+                          self.settings.mp4_height)
+            total += seconds * (v + audio_bps(fmt, surround)) / 8
+        if stills:
+            n = 1 + len([f for f in clip.extra_stills if f != clip.representative_frame])
+            total += n * STILL_BYTES.get(self.settings.still_format, 4_000_000)
+        return int(total)
 
     def clip_spec(self, clip: ClipEntry, fmt: str | None = None, mp4_quality: str | None = None) -> ClipSpec:
         fps = float(self.info.rate.fps)
@@ -195,17 +278,19 @@ class Project:
         from .render import render_clip as _render_clip
         render = render or _render_clip
         done: dict = {}
+        folder = self.clip_folder(clip, out_dir)
         for fmt in clip.formats:
             spec = self.clip_spec(clip, fmt)
             spec.name = self.output_name(clip, fmt)
-            path = render(self.info, spec, out_dir, on_progress=on_progress, overwrite=overwrite)
+            path = render(self.info, spec, folder, on_progress=on_progress, overwrite=overwrite)
             done[fmt] = str(path)
         done["still"] = str(self.render_clip_stills(clip, out_dir, overwrite)[0])
         clip.rendered.update(done)
         return done
 
     def render_clip_stills(self, clip: ClipEntry, out_dir: str | Path, overwrite: bool = False) -> list[Path]:
-        """The clip's still as <name>.png, extras as <name>_02.png, _03.png ..."""
+        """The clip's still as <name>.png, extras as <name>_02.png, _03.png ..., in its folder's stills/."""
+        out_dir = self.clip_folder(clip, out_dir)
         paths = []
         frames = [clip.representative_frame] + [f for f in clip.extra_stills if f != clip.representative_frame]
         for i, f in enumerate(frames):
@@ -238,6 +323,7 @@ class Project:
             "markers": [m.to_dict() for m in self.markers],
             "clips": [c.to_dict() for c in self.clips],
             "stills": [s.to_dict() for s in self.stills],
+            "phases": {k: dict(v) for k, v in self.phases.items()},
         }
 
     def save(self, path: str | Path) -> Path:
@@ -267,5 +353,6 @@ class Project:
             markers=[Marker(**{k: v for k, v in m.items() if k in Marker.__dataclass_fields__}) for m in d.get("markers", [])],
             clips=[ClipEntry.from_dict(c) for c in d.get("clips", [])],
             stills=[StillEntry(**s) for s in d.get("stills", [])],
+            phases={k: dict(v) for k, v in (d.get("phases") or {}).items() if k in BOUNDARIES and isinstance(v, dict)},
             version=d.get("version", PROJECT_VERSION),
         )

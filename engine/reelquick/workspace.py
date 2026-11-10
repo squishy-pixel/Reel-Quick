@@ -11,8 +11,9 @@ from pathlib import Path
 
 from .filmstrip import INDEX_NAME, load_filmstrip
 from .proxy import hls_available_seconds, hls_complete, video_start_offset
-from .naming import GameInfo
+from .naming import GameInfo, folder_name
 from .probe import probe
+from .prefs import load_prefs
 from .project import Project
 
 PROJECT_FILE = "project.reelquick.json"
@@ -98,9 +99,20 @@ class Workspace:
         self._offset_cache = (str(path), mtime, off)
         return off
 
+    # The app-wide output root from prefs.json, set by the Session; clips then go to <root>/<game>.
+    output_root: str = ""
+
     @property
     def clips_dir(self) -> Path:
-        return Path(self.project.settings.output_dir) if self.project.settings.output_dir else self.root / "clips"
+        """This game's output folder: its own setting, else a folder named for the game under the app's output
+        root, else clips/ in the work folder."""
+        if self.project.settings.output_dir:
+            return Path(self.project.settings.output_dir)
+        if self.output_root:
+            g = self.project.game
+            label = "_".join(x for x in (g.date, g.tag) if x) or self.root.name
+            return Path(self.output_root) / (folder_name(label) or self.root.name)
+        return self.root / "clips"
 
     @property
     def frames_dir(self) -> Path:
@@ -244,6 +256,7 @@ class Session:
     def open(self, source: str | Path) -> Workspace:
         with self.lock:
             self.workspace = Workspace.open(source, self.work_root)
+            self.workspace.output_root = load_prefs(self.work_root).get("output_root", "")
             self.undo_stack.clear()
             self.redo_stack.clear()
             return self.workspace

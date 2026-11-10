@@ -5,8 +5,13 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-DEFAULT_PATTERN = "{date}_{game}_{seq:02d}_{shell}_{camera}_{desc}"
-OLD_PATTERNS = {"{date}_{week}_{matchup}_{seq:02d}_{shell}_{desc}"}
+DEFAULT_PATTERN = "{date}_{game}_{seq:02d}_{phase}_{shell}_{camera}_{desc}"
+# Earlier defaults: a project still on one of these moves to the current default when it is opened.
+OLD_PATTERNS = {"{date}_{week}_{matchup}_{seq:02d}_{shell}_{desc}", "{date}_{game}_{seq:02d}_{shell}_{camera}_{desc}"}
+
+# How each broadcast phase reads in a file name. The studio shows (pre, half, post) are made by a different
+# group from the game, so the name says which one a clip is for.
+PHASE_NAMES = {"pre": "Pre", "game": "Game", "half": "Half", "post": "Post"}
 
 _ILLEGAL = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
@@ -30,6 +35,12 @@ class GameInfo:
         return "-".join(x for x in (slug(self.week), self.matchup) if x)
 
 
+def folder_name(text: str) -> str:
+    """A folder name people read: spaces kept ("Player Card"), only what file systems refuse removed."""
+    text = _ILLEGAL.sub("", text.strip())
+    return re.sub(r"\s+", " ", text).strip(" .")
+
+
 def slug(text: str) -> str:
     """Make a chunk safe for Windows, macOS and iPadOS file systems."""
     text = _ILLEGAL.sub("", text.strip())
@@ -39,8 +50,9 @@ def slug(text: str) -> str:
 
 
 def build_name(game: GameInfo, seq: int, shell: str = "", desc: str = "", pattern: str = DEFAULT_PATTERN,
-               camera: str = "", engine: str = "") -> str:
+               camera: str = "", engine: str = "", phase: str = "") -> str:
     fields = {
+        "phase": PHASE_NAMES.get(phase, slug(phase)),
         "camera": slug(camera),
         "engine": slug(engine),
         "game": slug(game.tag),

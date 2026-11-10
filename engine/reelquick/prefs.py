@@ -16,6 +16,7 @@ PREFS_FILE = "prefs.json"
 DEFAULT_PREFS: dict = {
     "shortcuts": {},        # action id -> key combination, only where it differs from the UI's default
     "ui": {},               # small UI conveniences (thumbnail size, last quick export, learned job rates)
+    "output_root": "",      # where every game's clips go (one folder per game); "" keeps them in the work folder
 }
 MERGED = {"ui"}             # a partial update adds to these instead of replacing them
 

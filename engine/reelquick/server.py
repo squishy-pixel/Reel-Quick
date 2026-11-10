@@ -23,7 +23,8 @@ from .jobs import JobManager
 from .markers import Marker, import_log_csv
 from .naming import GameInfo, build_name
 from .probe import probe
-from .project import ClipEntry, Settings, StillEntry
+from .estimate import free_space
+from .project import BOUNDARIES, PHASES, WHOSE, ClipEntry, Settings, StillEntry
 from .proxy import ProxySettings, build_proxy
 from .render import MP4_QUALITIES, OutputFormat, render_clip
 from .stills import grab_still
@@ -74,6 +75,8 @@ class ClipPatch(BaseModel):
     still_frame: int | None = None
     extra_stills: list[int] | None = None
     notes: str | None = None
+    phase: str | None = None         # "" follows the broadcast boundaries
+    whose: str | None = None         # ours / nbc / other
 
 
 class StillBody(BaseModel):
@@ -126,6 +129,17 @@ class RenderBody(BaseModel):
     # A one-off export: these formats and this MP4 quality for this run only; the clips keep their own.
     formats: list[str] | None = None
     mp4_quality: str | None = None
+    force: bool = False             # render even though the estimate says the destination is too full
+
+
+class PhasesBody(BaseModel):
+    """Boundary -> frame (None clears it), set by hand."""
+    values: dict[str, int | None]
+
+
+class PhasesImport(BaseModel):
+    """A detector's <game>.phases.json, as parsed JSON."""
+    data: dict
 
 
 # ---- helpers ------------------------------------------------------------------
@@ -166,9 +180,25 @@ def _patch_label(patch: dict) -> str:
     """What an undo of this clip edit will say it put back."""
     names = {"in_frame": "in point", "out_frame": "out point", "still_frame": "still", "extra_stills": "extra stills",
              "formats": "formats", "name": "file name", "shell": "shell", "desc": "description", "camera": "camera",
-             "engine": "engine", "head_seconds": "head", "tail_seconds": "tail", "notes": "notes"}
+             "engine": "engine", "head_seconds": "head", "tail_seconds": "tail", "notes": "notes",
+             "phase": "phase", "whose": "whose"}
     keys = [names.get(k, k) for k in patch]
     return "clip " + (", ".join(keys) if keys else "edit")
+
+
+SPACE_MARGIN = 1.1      # the estimate is an estimate: ask for a tenth more than it says
+
+
+def _gb(n: int | None) -> str:
+    return "an unknown amount" if n is None else f"{n / 1e9:.1f} GB"
+
+
+def _space_needed(project, clips, formats_of, quality, stills, read_info, out_dir) -> dict:
+    """Estimated bytes for these clips against the free space where they will be written."""
+    needed = sum(project.estimate_bytes(c, formats_of(c), quality, stills, info=read_info) for c in clips)
+    dest, free = free_space(out_dir)
+    return {"bytes": needed, "free": free, "dest": str(dest), "out_dir": str(out_dir),
+            "fits": free is None or needed * SPACE_MARGIN <= free}
 
 
 def _nearest_strip(w, frame: int):
@@ -229,7 +259,10 @@ def create_app(session: Session | None = None) -> FastAPI:
 
     @app.put("/api/prefs")
     def put_prefs(body: dict):
-        return save_prefs(session.work_root, body)
+        prefs = save_prefs(session.work_root, body)
+        if session.workspace is not None:
+            session.workspace.output_root = prefs.get("output_root", "")
+        return prefs
 
     @app.get("/api/fonts")
     def fonts():
@@ -343,6 +376,10 @@ def create_app(session: Session | None = None) -> FastAPI:
             new_out = patch.get("out_frame", clip.out_frame)
             if new_out <= new_in:
                 raise HTTPException(400, f"out must be after in ({w.project.tc(new_in)} to {w.project.tc(new_out)})")
+            if "phase" in patch and patch["phase"] not in ("", *PHASES):
+                raise HTTPException(400, f"phase must be one of {', '.join(PHASES)}, or empty to follow the game")
+            if "whose" in patch and patch["whose"] not in WHOSE:
+                raise HTTPException(400, f"whose must be one of {', '.join(WHOSE)}")
             session.remember(_patch_label(patch))
             for k, v in patch.items():
                 setattr(clip, k, v)
@@ -372,6 +409,49 @@ def create_app(session: Session | None = None) -> FastAPI:
             w.project.renumber()
             w.save()
         return {"project": w.project.to_dict()}
+
+    # ---- broadcast phases ---------------------------------------------------
+
+    @app.put("/api/phases")
+    def put_phases(body: PhasesBody):
+        """Boundaries set by hand; a detector's suggestion never overwrites these."""
+        w = ws()
+        with session.lock:
+            unknown = [k for k in body.values if k not in BOUNDARIES]
+            if unknown:
+                raise HTTPException(400, f"unknown boundary: {', '.join(unknown)}")
+            session.remember("broadcast phases")
+            try:
+                w.project.set_boundaries(body.values, "user")
+            except ValueError as e:
+                raise HTTPException(400, str(e))
+            w.project.renumber()
+            w.save()
+        return state()
+
+    @app.post("/api/phases/import")
+    def import_phases(body: PhasesImport):
+        """A <game>.phases.json from the detector. Boundaries set by hand are kept."""
+        w = ws()
+        d = body.data
+        if d.get("version") != 1:
+            raise HTTPException(400, "not a version 1 phases file")
+        values = {k: d.get(k) for k in BOUNDARIES if k in d}
+        if not values:
+            raise HTTPException(400, "the file holds no phase boundaries")
+        nb = d.get("nb_frames")
+        if isinstance(nb, int) and abs(nb - w.project.info.nb_frames) > max(60, w.project.info.nb_frames // 1000):
+            raise HTTPException(409, f"the file is for a recording of {nb} frames; this one has {w.project.info.nb_frames}")
+        with session.lock:
+            session.remember("import phases")
+            try:
+                changed = w.project.set_boundaries(values, str(d.get("source") or "detector"))
+            except ValueError as e:
+                raise HTTPException(400, str(e))
+            w.project.renumber()
+            w.save()
+        kept = [k for k in values if k not in changed and (w.project.phases.get(k) or {}).get("source") == "user"]
+        return {"changed": changed, "kept": kept, **state()}
 
     @app.post("/api/clips/renumber")
     def renumber():
@@ -646,6 +726,17 @@ def create_app(session: Session | None = None) -> FastAPI:
             raise HTTPException(409, str(e))
         return job.to_dict()
 
+    @app.post("/api/render/estimate")
+    def render_estimate(body: RenderBody):
+        """What a render would take on disk, and whether its destination has room. Same body as the render."""
+        w = ws()
+        project = w.project
+        clips = [c for c in project.clips if body.clip_ids is None or c.id in body.clip_ids]
+        quality = body.mp4_quality or project.settings.mp4_quality
+        fmts = (lambda c: list(dict.fromkeys(body.formats))) if body.formats is not None else (lambda c: c.formats)
+        read_info = project.info if w.recheck_source() or not w.has_proxy() else probe(w.proxy_path)
+        return _space_needed(project, clips, fmts, quality, body.stills, read_info, w.clips_dir)
+
     @app.post("/api/jobs/render")
     def job_render(body: RenderBody):
         w = ws()
@@ -678,6 +769,10 @@ def create_app(session: Session | None = None) -> FastAPI:
 
         total_work = sum(work_of(c) for c in clips)
         out_dir = w.clips_dir
+        space = _space_needed(project, clips, formats_of, quality, body.stills, read_info, out_dir)
+        if not space["fits"] and not body.force:
+            raise HTTPException(507, f"not enough space: this render needs about {_gb(space['bytes'])}, "
+                                     f"and {space['dest']} has {_gb(space['free'])} free")
 
         def run(progress, cancel):
             done_work = 0.0
@@ -710,7 +805,7 @@ def create_app(session: Session | None = None) -> FastAPI:
                                 spec.fmt = OutputFormat.PRORES      # the proxy is long-GOP; copy would not be frame accurate
                         fmt_progress.__defaults__[0][0] = i
                         try:
-                            path = render_clip(read_info, spec, out_dir, on_progress=fmt_progress,
+                            path = render_clip(read_info, spec, project.clip_folder(c, out_dir), on_progress=fmt_progress,
                                                cancel=cancel, overwrite=body.overwrite)
                         except FileExistsError as e:
                             path = Path(str(e))
@@ -723,7 +818,7 @@ def create_app(session: Session | None = None) -> FastAPI:
                             for k, f in enumerate(frames):
                                 nm = (c.name if k == 0 else f"{c.name}_{k + 1:02d}") + "_fromproxy"
                                 try:
-                                    stills.append(grab_still(read_info, f, out_dir / "stills", nm, project.settings.still_format,
+                                    stills.append(grab_still(read_info, f, project.clip_folder(c, out_dir) / "stills", nm, project.settings.still_format,
                                                              False, overwrite=body.overwrite))
                                 except FileExistsError as e:
                                     stills.append(Path(str(e)))

@@ -161,7 +161,8 @@ def test_filmstrip_proxy_render_jobs(client, tmp_path):
     project = client.get("/api/state").json()["project"]
     assert all(c["rendered"] for c in project["clips"])
     name = project["clips"][0]["name"]
-    assert client.get(f"/clips/{name}.mov").status_code == 200
+    # filed by content type: a clip with no shell or camera goes in Unsorted/
+    assert client.get(f"/clips/Unsorted/{name}.mov").status_code == 200
     # an encoded traversal reaches the clips route unnormalised and must be refused
     r = client.get("/clips/..%2Fproject.reelquick.json")
     assert r.status_code == 404
@@ -262,9 +263,9 @@ def test_one_off_export_takes_its_own_formats_and_quality(client):
 
 
 def test_prefs_persist_in_the_work_root(client):
-    assert client.get("/api/state").json()["prefs"] == {"shortcuts": {}, "ui": {}}
+    assert client.get("/api/state").json()["prefs"] == {"shortcuts": {}, "ui": {}, "output_root": ""}
     r = client.put("/api/prefs", json={"shortcuts": {"clear_marks": "Ctrl+Shift+X"}, "nonsense": 1})
-    assert r.json() == {"shortcuts": {"clear_marks": "Ctrl+Shift+X"}, "ui": {}}
+    assert r.json() == {"shortcuts": {"clear_marks": "Ctrl+Shift+X"}, "ui": {}, "output_root": ""}
     # ui settings merge key by key, so the window can save one without resending the rest
     client.put("/api/prefs", json={"ui": {"thumbW": 200}})
     assert client.put("/api/prefs", json={"ui": {"quickExport": {"formats": ["mp4"]}}}).json()["ui"] == {
@@ -274,3 +275,70 @@ def test_prefs_persist_in_the_work_root(client):
     assert client.get("/api/state").json()["prefs"]["shortcuts"] == {"clear_marks": "Ctrl+Shift+X"}
     # a bad type is ignored rather than stored
     assert client.put("/api/prefs", json={"shortcuts": ["x"]}).json()["shortcuts"] == {"clear_marks": "Ctrl+Shift+X"}
+
+
+def test_phases_set_by_hand_name_the_clips_and_survive_an_import(client):
+    info = client.get("/api/state").json()["project"]["info"]
+    cid = client.post("/api/clips", json={"in_frame": 30, "out_frame": 60, "shell": "Match-Up"}).json()["clip"]["id"]
+    later = client.post("/api/clips", json={"in_frame": 300, "out_frame": 330, "shell": "Booth"}).json()["clip"]["id"]
+    clips = {c["id"]: c for c in client.get("/api/state").json()["project"]["clips"]}
+    assert "_Pre_" not in clips[cid]["name"] and "__" not in clips[cid]["name"]   # no boundaries yet: no phase
+    # kickoff at frame 200: the first clip is pregame, the second is game
+    r = client.put("/api/phases", json={"values": {"kickoff": 200}})
+    assert r.status_code == 200
+    clips = {c["id"]: c for c in r.json()["project"]["clips"]}
+    assert clips[cid]["name"].endswith("01_Pre_Match-Up") and clips[later]["name"].endswith("02_Game_Booth")
+    assert r.json()["project"]["phases"]["kickoff"] == {"frame": 200, "source": "user"}
+    # a clip can override its phase by hand
+    r = client.patch(f"/api/clips/{later}", json={"phase": "half"})
+    assert r.json()["clip"]["name"].endswith("02_Half_Booth")
+    assert client.patch(f"/api/clips/{later}", json={"phase": "lunch"}).status_code == 400
+    # the detector's file fills the gaps but never moves what was set by hand
+    data = {"version": 1, "source": "scorebug", "nb_frames": info["nb_frames"], "kickoff": 150, "half_start": 250,
+            "second_half_kickoff": 280, "game_end": None}
+    r = client.post("/api/phases/import", json={"data": data}).json()
+    assert r["kept"] == ["kickoff"] and set(r["changed"]) == {"half_start", "second_half_kickoff"}
+    ph = r["project"]["phases"]
+    assert ph["kickoff"] == {"frame": 200, "source": "user"} and ph["half_start"] == {"frame": 250, "source": "scorebug"}
+    # a file for another recording is refused; one undo takes the import back
+    bad = {**data, "nb_frames": info["nb_frames"] * 3}
+    assert client.post("/api/phases/import", json={"data": bad}).status_code == 409
+    assert client.post("/api/undo").json()["label"] == "import phases"
+    assert "half_start" not in client.get("/api/state").json()["project"]["phases"] or \
+        client.get("/api/state").json()["project"]["phases"]["half_start"]["frame"] is None
+    assert client.put("/api/phases", json={"values": {"kickoff": 10 ** 9}}).status_code == 400
+    assert client.put("/api/phases", json={"values": {"lunch": 5}}).status_code == 400
+
+
+def test_outputs_are_filed_by_type_with_other_content_apart(client, tmp_path):
+    a = client.post("/api/clips", json={"in_frame": 30, "out_frame": 60, "shell": "Player Card", "formats": ["copy"]}).json()["clip"]["id"]
+    b = client.post("/api/clips", json={"in_frame": 100, "out_frame": 130, "shell": "Standings", "formats": ["copy"]}).json()["clip"]["id"]
+    client.patch(f"/api/clips/{b}", json={"whose": "nbc", "desc": "network standings"})
+    assert client.patch(f"/api/clips/{b}", json={"whose": "fox"}).status_code == 400
+    # the app-wide output root: this game gets a folder of its own under it
+    root = tmp_path / "deliveries"
+    client.put("/api/game", json={"date": "261008", "week": "WK06", "away": "TB", "home": "DAL"})
+    client.put("/api/prefs", json={"output_root": str(root)})
+    est = client.post("/api/render/estimate", json={}).json()
+    assert est["out_dir"] == str(root / "261008_WK06-TBvDAL") and est["bytes"] > 0 and est["fits"]
+    done = _wait(client, client.post("/api/jobs/render", json={}).json()["id"])
+    outs = {r["id"]: r["outputs"] for r in done["detail"]["clips"]}
+    game = root / "261008_WK06-TBvDAL"
+    assert Path(outs[a]["copy"]).parent == game / "Player Card"
+    assert Path(outs[a]["still"]).parent == game / "Player Card" / "stills"
+    assert Path(outs[b]["copy"]).parent == game / "Other Content"
+    # the estimate is in the right range: a 30-frame copy plus a still is a few MB, not GB
+    assert 1e5 < est["bytes"] / 2 < 5e7
+
+
+def test_render_refuses_when_the_destination_is_too_full(client, monkeypatch):
+    import reelquick.server as srv
+    client.post("/api/clips", json={"in_frame": 30, "out_frame": 60, "formats": ["prores"]})
+    monkeypatch.setattr(srv, "free_space", lambda p: (Path(p), 1000))
+    est = client.post("/api/render/estimate", json={}).json()
+    assert est["free"] == 1000 and not est["fits"]
+    r = client.post("/api/jobs/render", json={})
+    assert r.status_code == 507 and "not enough space" in r.json()["detail"]
+    # the user can still insist
+    job = client.post("/api/jobs/render", json={"force": True}).json()
+    assert _wait(client, job["id"])["status"] == "done"
