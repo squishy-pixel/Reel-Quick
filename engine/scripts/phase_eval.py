@@ -176,6 +176,27 @@ class Reader:
             return "", 0.0
         return res[0][1], float(res[0][2])
 
+    def read_many(self, imgs: np.ndarray, box: list[int], alpha: str, chunk: int = 128):
+        """The same box in many crops, read in one recognition call per chunk: the crops are stacked into
+        one tall image and each crop's box is passed as its own line, so the recogniser batches them on the
+        GPU instead of being called once per box."""
+        out = []
+        x0, y0, x1, y1 = box
+        h = imgs.shape[1]
+        for i in range(0, len(imgs), chunk):
+            part = imgs[i:i + chunk]
+            tall = part.reshape(-1, part.shape[2])
+            boxes = [[x0, x1, k * h + y0, k * h + y1] for k in range(len(part))]
+            res = self.r.recognize(tall, horizontal_list=boxes, free_list=[], allowlist=alpha, detail=1,
+                                   paragraph=False, batch_size=len(boxes))
+            # one result per box, in box order (EasyOCR keeps the order of horizontal_list)
+            got = {}
+            for b, s, c in res:
+                k = int(round(min(p[1] for p in b))) // h
+                got[k] = (s, float(c))
+            out += [got.get(k, ("", 0.0)) for k in range(len(part))]
+        return out
+
 
 def locate(path: str, info: dict, rd: Reader, n: int = 120) -> dict:
     """Find the quarter and clock boxes: median boxes of quarter tokens with a clock to their right."""
@@ -219,22 +240,73 @@ def locate(path: str, info: dict, rd: Reader, n: int = 120) -> dict:
 
 def cmd_scan(a):
     cache = Path(a.cache)
-    out = cache / f"bug-{a.game}.json"
+    out = cache / f"bug-{a.out_game or a.game}.json"
     info = probe(a.recording)
     rd = Reader()
     loc = locate(a.recording, info, rd)
     print(f"bug located from {loc['sightings']} sightings: crop {loc['crop']}", flush=True)
-    rows = []
-    for idx, fr in keyframes(a.recording, tuple(loc["crop"]), info["start"]):
-        for i, img in zip(idx, fr):
-            qt, qc = rd.read(img, loc["quarter_box"], QUARTER_ALPHA)
-            ct, cc = rd.read(img, loc["clock_box"], CLOCK_ALPHA)
-            rows.append([int(i), qt, round(qc, 3), ct, round(cc, 3)])
-        print(f"  {len(rows)} keyframes, at frame {int(idx[-1])}", flush=True)
+    if a.slow:
+        rows = []
+        for idx, fr in keyframes(a.recording, tuple(loc["crop"]), info["start"]):
+            for i, img in zip(idx, fr):
+                qt, qc = rd.read(img, loc["quarter_box"], QUARTER_ALPHA)
+                ct, cc = rd.read(img, loc["clock_box"], CLOCK_ALPHA)
+                rows.append([int(i), qt, round(qc, 3), ct, round(cc, 3)])
+            print(f"  {len(rows)} keyframes, at frame {int(idx[-1])}", flush=True)
+        read_n = len(rows)
+    else:
+        rows, read_n = scan_fast(a.recording, info, loc, rd)
     out.write_text(json.dumps({"recording": a.recording, **info, "locate": loc,
                                "columns": ["frame", "quarter_text", "quarter_conf", "clock_text", "clock_conf"],
-                               "rows": rows}), encoding="utf-8")
-    print(f"wrote {out} ({len(rows)} readings)")
+                               "mode": "slow" if a.slow else f"fast (every {SKIP}th keyframe, all near the bug)",
+                               "ocr_read": read_n, "rows": rows}), encoding="utf-8")
+    print(f"wrote {out} ({len(rows)} keyframes, {read_n} read by OCR)")
+
+
+SKIP = 4            # fast scan: read every SKIPth keyframe first ...
+FILL = 6            # ... then every keyframe within FILL keyframes of a first-pass reading that shows the bug
+
+
+def scan_fast(path: str, info: dict, loc: dict, rd: Reader):
+    """Decode every keyframe crop once (cheap), OCR every SKIPth, then every keyframe around the bug. Keyframes
+    not read get empty text, which the rules treat as "no bug", as before for keyframes without one."""
+    idx_all, crops = [], []
+    for idx, fr in keyframes(path, tuple(loc["crop"]), info["start"]):
+        idx_all.append(idx)
+        crops.append(fr.copy())
+    idx_all, crops = np.concatenate(idx_all), np.concatenate(crops)
+    n = len(idx_all)
+    print(f"  decoded {n} keyframe crops", flush=True)
+    text = [None] * n
+
+    def read(sel):
+        sel = [k for k in sel if text[k] is None]
+        if not sel:
+            return
+        qs = rd.read_many(crops[sel], loc["quarter_box"], QUARTER_ALPHA)
+        cs = rd.read_many(crops[sel], loc["clock_box"], CLOCK_ALPHA)
+        for k, (qt, qc), (ct, cc) in zip(sel, qs, cs):
+            text[k] = (qt, qc, ct, cc)
+
+    def bug_seen(k):
+        qt, _, ct, _ = text[k]
+        return (parse_quarter(qt) and parse_clock(ct) >= 0) or parse_state(qt, ct)
+    read(list(range(0, n, SKIP)))
+    print(f"  first pass: {sum(t is not None for t in text)} read", flush=True)
+    # fill around every hit, and keep filling while new hits turn up at the edge of a filled stretch
+    todo = [k for k in range(0, n, SKIP) if bug_seen(k)]
+    while todo:
+        near = sorted({j for k in todo for j in range(max(0, k - FILL), min(n, k + FILL + 1))})
+        fresh = [j for j in near if text[j] is None]
+        read(fresh)
+        todo = [j for j in fresh if bug_seen(j)]
+    read_n = sum(t is not None for t in text)
+    print(f"  after filling: {read_n} read", flush=True)
+    rows = []
+    for k in range(n):
+        qt, qc, ct, cc = text[k] or ("", 0.0, "", 0.0)
+        rows.append([int(idx_all[k]), qt, round(qc, 3), ct, round(cc, 3)])
+    return rows, read_n
 
 
 # ---------------------------------------------------------------------------------------- phases
@@ -504,6 +576,8 @@ def main():
     s.add_argument("--recording", required=True)
     s.add_argument("--game", required=True)
     s.add_argument("--cache", required=True)
+    s.add_argument("--slow", action="store_true", help="read every keyframe, two OCR calls each (the old way)")
+    s.add_argument("--out-game", help="write the readings under this name instead of --game (for comparisons)")
     d = sub.add_parser("dump")
     d.add_argument("--game", required=True)
     d.add_argument("--cache", required=True)
