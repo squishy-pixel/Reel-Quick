@@ -314,51 +314,58 @@ def kickoff(fr, q, c, core, quarter: int):
                                     "stretch_s": round(stretch, 1), "quarter_sightings": n_q}
 
 
-def period_end(fr, q, c, core, quarters: tuple[int, ...], state: int):
-    """End of a half: the first time the clock reads 0:00 in the half's last quarter, confirmed by the
-    HALF/FINAL state (or by no more of that quarter); else the first HALF/FINAL; else the last sighting."""
+def period_end(fr, q, c, core, quarters: tuple[int, ...], state: int, until: int | None = None):
+    """End of a half: the first time the clock reads 0:00 in the half's last quarter (and stays there),
+    confirmed by HALF/FINAL soon after; else the first HALF/FINAL; else the last sighting.
+    until: index where the next half starts (the first 3rd-quarter sighting), so the bug in later replays and
+    highlights cannot move the end of the first half."""
     t = fr / FPS
+    limit = until if until is not None else len(q)
     qi = np.where(core & np.isin(q, quarters))[0]
+    qi = qi[qi < limit]
     si = np.where(core & (q == state))[0]
+    si = si[si < limit]
     if not len(qi) and not len(si):
         return None, 0.0, {"reason": "no sightings"}
     last_q = int(q[qi].max()) if len(qi) else None
-    zero = qi[(q[qi] == last_q) & (c[qi] == 0)] if last_q else np.array([], int)
     lq = qi[q[qi] == last_q] if last_q else np.array([], int)
-    # HALF / FINAL count only after the quarter's clock was last seen above 2:00: OCR finds "FINAL" in garbage
-    # ("Lnala", "inaFina") and the pregame shows other games' finals, but the real one comes after the clock
-    # has run down
-    if len(lq):
-        above = lq[c[lq] > 120]
-        si = si[si > (above[-1] if len(above) else lq[0])]
+    zero = lq[c[lq] == 0]
 
     def holds(z):
         nxt = lq[(lq > z) & (t[lq] - t[z] < 600)][:ZERO_AFTER]
         return not len(nxt) or np.mean(c[nxt] <= 1) >= 0.5
     rejected = [int(fr[z]) for z in zero if not holds(z)]
     zero = np.array([z for z in zero if holds(z)], int)
-    ev = {"last_quarter": last_q, "zero_sightings": int(len(zero)), "state_sightings": int(len(si))}
+    ev = {"last_quarter": last_q, "zero_sightings": int(len(zero))}
     if rejected:
         ev["zero_readings_not_held"] = rejected[:10]
-    if len(si):
-        ev["first_state"] = int(fr[si[0]])
     if len(zero):
         z = zero[0]
         ev["first_zero"] = int(fr[z])
-        later_play = qi[(qi > z) & (c[qi] > 0) & (q[qi] == last_q)]
-        confirmed = (len(si) and si[0] > z and t[si[0]] - t[z] < 600) or not len(later_play)
-        conf = 0.95 if confirmed else 0.6
-        return int(fr[z]), conf, ev
+        after = si[(si > z) & (t[si] - t[z] < 600)]
+        ev["state_sightings_after"] = int(len(after))
+        if len(after):
+            ev["first_state"] = int(fr[after[0]])
+        return int(fr[z]), (0.95 if len(after) else 0.7), ev
+    # No held 0:00 (the bug was off for the last play). HALF / FINAL then, but only after the quarter's clock
+    # was last seen above 2:00: OCR finds "FINAL" in garbage ("Lnala", "inaFina") and the pregame shows other
+    # games' finals, while the real one comes after the clock has run down.
+    if len(lq):
+        above = lq[c[lq] > 120]
+        si = si[si > (above[-1] if len(above) else lq[0])]
+    ev["state_sightings"] = int(len(si))
     if len(si):
+        ev["first_state"] = int(fr[si[0]])
         return int(fr[si[0]]), 0.7, ev
     return int(fr[qi[-1]]), 0.4, ev
 
 
 def phases(fr, q, c):
     core = core_mask(fr, q)
+    q3 = np.where(core & (q == 3))[0]
     out, conf, ev = {}, {}, {}
     for name, fn in (("kickoff", lambda: kickoff(fr, q, c, core, 1)),
-                     ("half_start", lambda: period_end(fr, q, c, core, (2,), HALF)),
+                     ("half_start", lambda: period_end(fr, q, c, core, (2,), HALF, q3[0] if len(q3) else None)),
                      ("second_half_kickoff", lambda: kickoff(fr, q, c, core, 3)),
                      ("game_end", lambda: period_end(fr, q, c, core, (4, 5), FINAL))):
         out[name], conf[name], ev[name] = fn()
