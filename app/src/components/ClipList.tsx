@@ -30,8 +30,10 @@ function loadQuick(): QuickExport {
   return fallback;
 }
 
-function QuickExportBar({ onExport, onClose }: { onExport: (o: QuickExport) => void; onClose: () => void }) {
-  const [o, setO] = useState<QuickExport>(loadQuick);
+const NO_COPY = "Not available for this file: it is not all keyframes, so a cut without re-encoding would not land on the exact frame. Use ProRes or MP4.";
+
+function QuickExportBar({ onExport, onClose, copyOk }: { onExport: (o: QuickExport) => void; onClose: () => void; copyOk: boolean }) {
+  const [o, setO] = useState<QuickExport>(() => { const q = loadQuick(); if (copyOk) return q; const f = q.formats.filter((x) => x !== "copy"); return { ...q, formats: f.length ? f : ["mp4"] }; });
   const set = (next: QuickExport) => { setO(next); setUi("quickExport", next); };
   const hasMp4 = o.formats.includes("mp4");
   return (
@@ -39,6 +41,7 @@ function QuickExportBar({ onExport, onClose }: { onExport: (o: QuickExport) => v
       <span className="dim">Export now</span>
       {FORMATS.map((f) => {
         const on = o.formats.includes(f.key);
+        if (f.key === "copy" && !copyOk) return <span key={f.key} className="chip disabled" title={NO_COPY}>{f.label}</span>;
         return <span key={f.key} className={`chip ${on ? "on" : ""}`} title={f.title} onClick={() => {
           const formats = on ? o.formats.filter((x) => x !== f.key) : [...o.formats, f.key];
           if (formats.length) set({ ...o, formats });
@@ -57,13 +60,14 @@ function QuickExportBar({ onExport, onClose }: { onExport: (o: QuickExport) => v
   );
 }
 
-export function ClipList({ clips, info, selected, onSelect, onPatch, onDelete, onSeek, onExport, renderRows, keys, phaseOfClip }: {
+export function ClipList({ clips, info, selected, onSelect, onPatch, onDelete, onSeek, onExport, renderRows, keys, phaseOfClip, copyOk }: {
   clips: Clip[]; info: MediaInfo; selected: string | null; onSelect: (id: string) => void;
   onPatch: (id: string, patch: Partial<Clip>) => void; onDelete: (id: string) => void; onSeek: (frame: number) => void;
   onExport: (id: string, o: QuickExport) => void;
   renderRows: Record<string, { status: string; progress: number }>;
   keys: { in: string; out: string; add: string };    // the user's current bindings, for the empty-list hint
   phaseOfClip: (c: Clip) => Phase;
+  copyOk: boolean;      // stream copy is frame accurate only on all-keyframe recordings like the broadcast MXF
 }) {
   const [exporting, setExporting] = useState<string | null>(null);
   const rate = { num: info.rate_num, den: info.rate_den };
@@ -106,6 +110,7 @@ export function ClipList({ clips, info, selected, onSelect, onPatch, onDelete, o
               <div className="chips" onClick={(e) => e.stopPropagation()}>
                 {FORMATS.map((f) => {
                   const on = c.formats.includes(f.key);
+                  if (f.key === "copy" && !copyOk && !on) return <span key={f.key} className="chip disabled" title={NO_COPY}>{f.label}</span>;
                   return <span key={f.key} className={`chip ${on ? "on" : ""}`} title={f.title} onClick={() => {
                     const next = on ? c.formats.filter((x) => x !== f.key) : [...c.formats, f.key];
                     if (next.length) onPatch(c.id, { formats: next });
@@ -115,7 +120,7 @@ export function ClipList({ clips, info, selected, onSelect, onPatch, onDelete, o
                   onClick={() => setExporting(exporting === c.id ? null : c.id)}>Export…</span>
                 <span className="chip" onClick={() => onDelete(c.id)} title="Delete clip">✕</span>
               </div>
-              {exporting === c.id && <QuickExportBar onExport={(o) => onExport(c.id, o)} onClose={() => setExporting(null)} />}
+              {exporting === c.id && <QuickExportBar copyOk={copyOk} onExport={(o) => onExport(c.id, o)} onClose={() => setExporting(null)} />}
             </div>
           </div>
         );

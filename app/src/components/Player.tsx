@@ -216,7 +216,7 @@ export const Player = forwardRef<PlayerHandle, {
     });
   };
   // The transport bar shows rate and mode; nothing is drawn over the picture.
-  useEffect(() => { onStatusRef.current?.({ rate, mode: beyond ? "not in proxy yet" : showExact ? "source frame" : proxyUrl ? "proxy" : "no video" }); }, [rate, showExact, proxyUrl, beyond]);
+  useEffect(() => { onStatusRef.current?.({ rate, mode: beyond ? "not in proxy yet" : showExact ? "source frame" : proxyUrl === "/media/source" ? "direct" : proxyUrl ? "proxy" : "no video" }); }, [rate, showExact, proxyUrl, beyond]);
 
   return (
     <div className="player">

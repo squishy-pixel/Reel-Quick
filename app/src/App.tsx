@@ -7,7 +7,8 @@ import { Shuttle } from "./components/Shuttle";
 import { ClipEditor, ClipList, type QuickExport } from "./components/ClipList";
 import { AudioDialog, BroadcastPanel, JobsPanel, MarkersPanel, RenderPanel, learnRate } from "./components/Panels";
 import { PHASE_LABEL, boundary, clipPhase, phaseOf, phaseSpans } from "./phases";
-import type { BoundaryKey, SpaceEstimate } from "./api";
+import type { BoundaryKey, Candidate, SpaceEstimate } from "./api";
+import { CandidateList } from "./components/Candidates";
 import { FileDialog } from "./components/FileDialog";
 import { SettingsDialog } from "./components/Settings";
 import { ACTIONS, type ActionId, actionFor, bindingsFrom, comboOf, overridesOf, showKey, tip } from "./shortcuts";
@@ -62,6 +63,10 @@ export default function App() {
   const [, setUndoTick] = useState(0);                 // re-render the undo buttons when the window's stack changes
   const csvInput = useRef<HTMLInputElement>(null);
   const jsonInput = useRef<HTMLInputElement>(null);
+  const jsonFor = useRef<"phases" | "candidates">("phases");
+  const [listView, setListView] = useState<"clips" | "candidates">("clips");
+  const [showDecided, setShowDecided] = useState(false);
+  const [candSel, setCandSel] = useState<string | null>(null);
   const [space, setSpace] = useState<SpaceEstimate | null>(null);
   const stillName = useRef<HTMLInputElement>(null);
 
@@ -168,7 +173,41 @@ export default function App() {
   const importPhases = async () => {
     const n = native();
     if (n?.pick_json) { const text = await n.pick_json(); if (text) loadPhases(text); }
-    else jsonInput.current?.click();
+    else { jsonFor.current = "phases"; jsonInput.current?.click(); }
+  };
+  const importCandidates = async () => {
+    const n = native();
+    if (n?.pick_json) { const text = await n.pick_json(); if (text) loadCandidates(text); }
+    else { jsonFor.current = "candidates"; jsonInput.current?.click(); }
+  };
+  const loadCandidates = (text: string) => {
+    let data: unknown;
+    try { data = JSON.parse(text); } catch { say("That file is not JSON", true); return; }
+    run(api.importCandidates(data), (r) => { setListView("candidates"); say(`${r.added} suggestion${r.added === 1 ? "" : "s"} added${r.already_decided ? `; ${r.already_decided} already decided` : ""}`); });
+  };
+  // ---- reviewing the detector's suggestions -------------------------------------------------
+  const pendingCands = (project?.candidates ?? []).filter((c) => c.status === "pending");
+  const selectCand = (c: Candidate) => { setCandSel(c.id); setListView("candidates"); jumpTo(c.in_frame); };
+  const currentCand = (): Candidate | null => {
+    const all = project?.candidates ?? [];
+    const sel = all.find((c) => c.id === candSel && c.status === "pending");
+    return sel ?? pendingCands.find((c) => frame >= c.in_frame && frame < c.out_frame) ?? null;
+  };
+  const stepCand = (dir: 1 | -1, from = frame) => {
+    const next = dir > 0 ? pendingCands.find((c) => c.in_frame > from + 1) : [...pendingCands].reverse().find((c) => c.in_frame < from - 1);
+    if (next) selectCand(next); else say(dir > 0 ? "No more suggestions after this point" : "No suggestions before this point");
+  };
+  const afterDecision = (c: Candidate) => {
+    const next = pendingCands.find((x) => x.id !== c.id && x.in_frame > c.in_frame);
+    if (next) selectCand(next); else setCandSel(null);
+  };
+  const acceptCand = (c: Candidate | null, label?: string) => {
+    if (!c) { say("No suggestion selected: press N for the next one", true); return; }
+    run(api.acceptCandidate(c.id, label), (r) => { say(`Added ${r.clip.name}`); afterDecision(c); });
+  };
+  const dismissCand = (c: Candidate | null) => {
+    if (!c) { say("No suggestion selected: press N for the next one", true); return; }
+    run(api.patchCandidate(c.id, { status: "dismissed" }), () => afterDecision(c));
   };
   const loadPhases = (text: string) => {
     let data: unknown;
@@ -293,6 +332,10 @@ export default function App() {
       case "undo": undo(); break;
       case "redo": undo(true); break;
       case "help": setDialog({ kind: "help" }); break;
+      case "next_candidate": stepCand(1); break;
+      case "prev_candidate": stepCand(-1); break;
+      case "accept_candidate": acceptCand(currentCand()); break;
+      case "dismiss_candidate": dismissCand(currentCand()); break;
     }
   }, [project, frame, fps, inPoint, outPoint, addClip, setStill, selectedClip, deleteClip, seek, jumpTo, run, say, undo, setMarks, markIn, markOut, clearMarks]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -395,6 +438,7 @@ export default function App() {
                 <Filmstrip index={strip} nbFrames={info!.nb_frames} fps={fps} frame={frame} markers={project.markers} clips={project.clips} selectedId={selected}
                   inPoint={inPoint} outPoint={outPoint} pendingStill={pendingStill} onSeek={seek} follow={follow} reveal={reveal} thumbW={thumbW} onThumbW={setThumbW} tcOf={tcOf}
                   proxySeconds={ws!.proxy_url ? ws!.proxy_available_seconds : 0}
+                  candidates={(project.candidates ?? []).filter((c) => c.status === "pending")} candSel={candSel}
                   spans={phaseSpans(project)} anthem={(() => { const a = boundary(project, "anthem_in"), b = boundary(project, "anthem_out"); return a !== null && b !== null && b > a ? [a, b] as [number, number] : null; })()} />
               ) : (
                 <div className="strip-empty hatch">
@@ -442,11 +486,23 @@ export default function App() {
             </div>
             {/* the clip list keeps its heading with it, so it never scrolls away with the panels above */}
             <div className="clipsarea">
-            <div className="panel-head" style={{ padding: "10px 12px 0" }}><h2>Clips <span className="dim" style={{ letterSpacing: 0 }}>{project.clips.length}</span></h2>
-              {selectedClip && <button className="btn small" onClick={() => jumpTo(selectedClip.in_frame)}>Go to in</button>}</div>
-            <ClipList clips={project.clips} info={info!} selected={selected} onSelect={setSelected} onPatch={patchClip} onDelete={deleteClip} onSeek={jumpTo} onExport={(id, o) => startRender([id], o)} renderRows={renderRows}
+            <div className="panel-head listtabs" style={{ padding: "10px 12px 0" }}>
+              <h2 className={listView === "clips" ? "on" : ""} onClick={() => setListView("clips")}>Clips <span className="dim" style={{ letterSpacing: 0 }}>{project.clips.length}</span></h2>
+              <h2 className={listView === "candidates" ? "on" : ""} onClick={() => setListView("candidates")} title="The detector's suggestions, to accept or dismiss">Suggested <span className={pendingCands.length ? "accent" : "dim"} style={{ letterSpacing: 0 }}>{pendingCands.length}</span></h2>
+              <span style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
+                {listView === "clips" && selectedClip && <button className="btn small" onClick={() => jumpTo(selectedClip.in_frame)}>Go to in</button>}
+                {listView === "candidates" && (project.candidates?.length ?? 0) > 0 && <label className="dim" style={{ fontSize: 10, display: "flex", gap: 4, alignItems: "center" }}><input type="checkbox" checked={showDecided} onChange={(e) => setShowDecided(e.target.checked)} />decided</label>}
+                {listView === "candidates" && <button className="btn small" onClick={importCandidates} title="Load the detector's <game>.candidates.json; decisions already made are kept">Import…</button>}
+              </span>
+            </div>
+            {listView === "candidates" ? (
+              <CandidateList candidates={project.candidates ?? []} info={info!} selected={candSel} showAll={showDecided}
+                onSelect={selectCand} onAccept={acceptCand} onDismiss={dismissCand}
+                onRestore={(c) => run(api.patchCandidate(c.id, { status: "pending" }))}
+                keys={{ next: showKey(bindings.next_candidate || undefined), accept: showKey(bindings.accept_candidate || undefined), dismiss: showKey(bindings.dismiss_candidate || undefined) }} />
+            ) : <ClipList clips={project.clips} info={info!} selected={selected} onSelect={setSelected} onPatch={patchClip} onDelete={deleteClip} onSeek={jumpTo} onExport={(id, o) => startRender([id], o)} renderRows={renderRows}
               keys={{ in: showKey(bindings.mark_in || undefined), out: showKey(bindings.mark_out || undefined), add: showKey(bindings.add_clip || undefined) }}
-              phaseOfClip={(c) => clipPhase(project, c)} />
+              phaseOfClip={(c) => clipPhase(project, c)} copyOk={ws!.stream_copy_ok} />}
             </div>
             <div>
               {selectedClip && <ClipEditor clip={selectedClip} info={info!} frame={frame} vocab={state.vocab} autoPhase={phaseOf(project, selectedClip.in_frame)} onPatch={(p) => patchClip(selectedClip.id, p)} onSeek={jumpTo} onSay={say} />}
@@ -462,7 +518,7 @@ export default function App() {
       </div>
 
       <input ref={csvInput} type="file" accept=".csv,.tsv,.txt" style={{ display: "none" }} onChange={onCsvFile} />
-      <input ref={jsonInput} type="file" accept=".json" style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; if (f) f.text().then(loadPhases); e.target.value = ""; }} />
+      <input ref={jsonInput} type="file" accept=".json" style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; if (f) f.text().then(jsonFor.current === "candidates" ? loadCandidates : loadPhases); e.target.value = ""; }} />
       {dialog?.kind === "open" && <FileDialog title="Open a recording" onClose={() => setDialog(null)} onPick={(p) => { setDialog(null); openPath(p); }} />}
       {dialog?.kind === "outdir" && <FileDialog title="Output folder for clips" dirsOnly start={ws?.clips_dir} onClose={() => setDialog(null)} onPick={(p) => { setDialog(null); run(api.settings({ output_dir: p })); }} />}
       {dialog?.kind === "still" && project && (

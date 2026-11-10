@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Clip, FilmstripIndex, Marker } from "../api";
+import type { Candidate, Clip, FilmstripIndex, Marker } from "../api";
 import { Tc } from "./Tc";
 
 export const THUMB_MIN = 80, THUMB_MAX = 320;
 
 type Snap = { frame: number; label: string };
 
-export function Filmstrip({ index, nbFrames, fps, frame, markers, clips, selectedId, inPoint, outPoint, pendingStill, onSeek, follow, reveal, thumbW, onThumbW, tcOf, proxySeconds, spans, anthem }: {
+export function Filmstrip({ index, nbFrames, fps, frame, markers, clips, selectedId, inPoint, outPoint, pendingStill, onSeek, follow, reveal, thumbW, onThumbW, tcOf, proxySeconds, spans, anthem, candidates, candSel }: {
   index: FilmstripIndex; nbFrames: number; fps: number; frame: number; markers: Marker[]; clips: Clip[]; selectedId: string | null;
   inPoint: number | null; outPoint: number | null; pendingStill: number | null; onSeek: (frame: number) => void; follow: boolean;
   reveal: { frame: number; n: number } | null;    // an explicit jump (clip, marker, go-to): scroll there whatever "follow" says
@@ -14,6 +14,8 @@ export function Filmstrip({ index, nbFrames, fps, frame, markers, clips, selecte
   proxySeconds: number;                           // how far the proxy reaches; beyond it the video cannot show frames yet
   spans: { from: number; to: number; phase: "pre" | "game" | "half" | "post" }[];   // the broadcast's phases, in order
   anthem: [number, number] | null;
+  candidates: Candidate[];                         // the detector's pending suggestions
+  candSel: string | null;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [view, setView] = useState({ left: 0, width: 1200 });
@@ -109,6 +111,12 @@ export function Filmstrip({ index, nbFrames, fps, frame, markers, clips, selecte
     if (anthem) { g.fillStyle = "rgba(230,80,70,0.95)"; g.fillRect(x(anthem[0]), 0, Math.max(2, x(anthem[1]) - x(anthem[0])), 4); }
     g.fillStyle = "rgba(255,255,255,0.07)";
     g.fillRect(x((view.left / thumbW) * perThumb), 0, Math.max(2, x((view.width / thumbW) * perThumb)), h);
+    // suggestions waiting for a decision: a cyan bar above the clips, solid for the one selected
+    for (const cd of candidates) {
+      const cx = x(cd.in_frame), cw = Math.max(2, x(cd.out_frame) - x(cd.in_frame));
+      if (cd.id === candSel) { g.fillStyle = "#3FD0E0"; g.fillRect(cx, h - 15, cw, 6); }
+      else { g.strokeStyle = "rgba(63,208,224,0.9)"; g.lineWidth = 1; g.strokeRect(cx + 0.5, h - 14.5, Math.max(1, cw - 1), 5); }
+    }
     for (const cl of clips) { g.fillStyle = cl.id === selectedId ? "#F4F5F5" : "#FEB404"; g.fillRect(x(cl.in_frame), h - 7, Math.max(2, x(cl.out_frame) - x(cl.in_frame)), 6); }
     if (selected) { g.fillStyle = "rgba(244,245,245,0.18)"; g.fillRect(x(selected.in_frame), 0, Math.max(2, x(selected.out_frame) - x(selected.in_frame)), h); }
     for (const m of timed) { g.fillStyle = m.source === "user" ? "#F4F5F5" : "#FEB404"; g.fillRect(x(m.frame!) - 0.5, 2, 1.5, h - 10); }
@@ -116,7 +124,7 @@ export function Filmstrip({ index, nbFrames, fps, frame, markers, clips, selecte
     for (const f of stills) { const cy = h / 2; g.fillStyle = "#F4F5F5"; g.beginPath(); g.moveTo(x(f), cy - 6); g.lineTo(x(f) + 6, cy); g.lineTo(x(f), cy + 6); g.lineTo(x(f) - 6, cy); g.closePath(); g.fill(); g.strokeStyle = "#000"; g.lineWidth = 1; g.stroke(); }
     if (inPoint !== null) { g.fillStyle = "rgba(254,180,4,0.35)"; g.fillRect(x(inPoint), 0, Math.max(2, x(outPoint ?? frame) - x(inPoint)), h); }
     g.fillStyle = "#F4F5F5"; g.fillRect(x(frame) - 1.5, 0, 3, h);
-  }, [frame, timed, stills, clips, selected, selectedId, nbFrames, view, perThumb, thumbW, inPoint, outPoint, proxyEnd, spans, anthem]);
+  }, [frame, timed, stills, clips, selected, selectedId, nbFrames, view, perThumb, thumbW, inPoint, outPoint, proxyEnd, spans, anthem, candidates, candSel]);
 
   // A click within a few pixels of a marker, still or clip edge lands on it exactly.
   const frameAt = (e: MouseEvent | React.MouseEvent, el: HTMLElement): { frame: number; label?: string } => {
@@ -183,6 +191,7 @@ export function Filmstrip({ index, nbFrames, fps, frame, markers, clips, selecte
         {spans.length > 0 && <span><i className="sw studio" />studio</span>}
         {spans.length > 0 && <span><i className="sw gameband" />game</span>}
         {anthem && <span><i className="sw anthem" />anthem</span>}
+        {candidates.length > 0 && <span><i className="sw cand" />suggested</span>}
         <span className="dim" style={{ marginLeft: "auto" }}>click near a mark to land on it</span>
       </div>
     </div>

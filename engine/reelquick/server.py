@@ -137,6 +137,20 @@ class PhasesBody(BaseModel):
     values: dict[str, int | None]
 
 
+class CandidatesImport(BaseModel):
+    """A detector's <game>.candidates.json, as parsed JSON."""
+    data: dict
+
+
+class CandidatePatch(BaseModel):
+    status: str | None = None        # pending / dismissed (accepting goes through /accept)
+    label: str | None = None         # pick one of its look-alikes instead
+
+
+class CandidateAccept(BaseModel):
+    label: str | None = None
+
+
 class PhasesImport(BaseModel):
     """A detector's <game>.phases.json, as parsed JSON."""
     data: dict
@@ -167,7 +181,7 @@ def _list_dir(path: str | None) -> dict:
                 size = 0 if is_dir else child.stat().st_size
             except OSError:
                 continue
-            if not is_dir and child.suffix.lower() not in (".mxf", ".mov", ".mp4", ".mkv", ".mts", ".m2ts", ".avi", ".csv"):
+            if not is_dir and child.suffix.lower() not in (".mxf", ".mov", ".mp4", ".m4v", ".mkv", ".webm", ".ts", ".mts", ".m2ts", ".avi", ".csv", ".json"):
                 continue
             entries.append({"name": child.name, "path": str(child), "dir": is_dir, "size": size})
     except PermissionError:
@@ -406,6 +420,9 @@ def create_app(session: Session | None = None) -> FastAPI:
                 raise HTTPException(404, "no such clip")
             session.remember("delete clip")
             w.project.clips = [c for c in w.project.clips if c.id != clip_id]
+            for cand in w.project.candidates:          # its suggestion goes back to waiting for a decision
+                if cand.clip_id == clip_id:
+                    cand.status, cand.clip_id = "pending", None
             w.project.renumber()
             w.save()
         return {"project": w.project.to_dict()}
@@ -452,6 +469,56 @@ def create_app(session: Session | None = None) -> FastAPI:
             w.save()
         kept = [k for k in values if k not in changed and (w.project.phases.get(k) or {}).get("source") == "user"]
         return {"changed": changed, "kept": kept, **state()}
+
+    # ---- candidates (detector suggestions) ------------------------------------
+
+    def _candidate(w, cid: str):
+        c = next((c for c in w.project.candidates if c.id == cid), None)
+        if c is None:
+            raise HTTPException(404, "no such candidate")
+        return c
+
+    @app.post("/api/candidates/import")
+    def import_candidates(body: CandidatesImport):
+        w = ws()
+        with session.lock:
+            try:
+                parsed = w.project.parse_candidates(body.data)     # checked first: a bad file leaves no undo step
+            except ValueError as e:
+                raise HTTPException(400, str(e))
+            session.remember("import candidates")
+            r = w.project.import_candidates(body.data, parsed)
+            w.save()
+        return {**r, **state()}
+
+    @app.patch("/api/candidates/{cid}")
+    def patch_candidate(cid: str, body: CandidatePatch):
+        w = ws()
+        with session.lock:
+            c = _candidate(w, cid)
+            if body.status is not None and body.status not in ("pending", "dismissed"):
+                raise HTTPException(400, "status must be pending or dismissed; accept a candidate with /accept")
+            if c.status == "accepted" and body.status is not None:
+                raise HTTPException(409, "already accepted: delete its clip instead")
+            session.remember("dismiss candidate" if body.status == "dismissed" else "candidate")
+            if body.status is not None:
+                c.status = body.status
+            if body.label is not None:
+                c.label = body.label
+            w.save()
+        return state()
+
+    @app.post("/api/candidates/{cid}/accept")
+    def accept_candidate(cid: str, body: CandidateAccept):
+        w = ws()
+        with session.lock:
+            c = _candidate(w, cid)
+            if c.status == "accepted":
+                raise HTTPException(409, "already accepted")
+            session.remember("accept candidate")
+            clip = w.project.accept_candidate(c, body.label)
+            w.save()
+        return {"clip": clip.to_dict(), **state()}
 
     @app.post("/api/clips/renumber")
     def renumber():
@@ -601,6 +668,15 @@ def create_app(session: Session | None = None) -> FastAPI:
         if not w.has_proxy():
             raise HTTPException(404, "no proxy yet")
         return FileResponse(w.proxy_path, media_type="video/mp4", headers={"Cache-Control": "no-cache"})
+
+    @app.get("/media/source")
+    def source_media():
+        """The recording itself, when the player can show it (Workspace.source_playable), Range-capable."""
+        w = ws()
+        if not w.source_playable():
+            raise HTTPException(404, "the recording cannot be played directly; build a proxy")
+        mt = "video/quicktime" if w.source.suffix.lower() == ".mov" else "video/mp4"
+        return FileResponse(w.source, media_type=mt, headers={"Cache-Control": "no-cache"})
 
     @app.get("/media/proxy/{name}")
     def proxy_hls(name: str):

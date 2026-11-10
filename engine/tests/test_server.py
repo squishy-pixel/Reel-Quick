@@ -1,3 +1,4 @@
+import subprocess
 import time
 from pathlib import Path
 
@@ -342,3 +343,75 @@ def test_render_refuses_when_the_destination_is_too_full(client, monkeypatch):
     # the user can still insist
     job = client.post("/api/jobs/render", json={"force": True}).json()
     assert _wait(client, job["id"])["status"] == "done"
+
+
+def test_a_downloaded_game_plays_without_a_proxy(tmp_path):
+    """An H.264 MP4 (a game downloaded to study, say) goes to the player as it is, so marking can start at
+    once; the broadcast MXF still needs its proxy. Stream copy is flagged as unavailable on long-GOP files."""
+    from reelquick.ffmpeg import ffmpeg_bin
+    from reelquick.server import create_app
+    from reelquick.workspace import Session
+    mp4 = tmp_path / "mnf.mp4"
+    subprocess.run([ffmpeg_bin(), "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=60000/1001",
+                    "-f", "lavfi", "-i", "sine=r=48000", "-t", "3", "-map", "0:v", "-map", "1:a", "-c:v", "libx264",
+                    "-g", "60", "-pix_fmt", "yuv420p", "-c:a", "aac", "-movflags", "+faststart", str(mp4)], check=True)
+    c = TestClient(create_app(Session(tmp_path / "work")))
+    ws = c.post("/api/open", json={"path": str(mp4)}).json()["workspace"]
+    assert ws["proxy_url"] == "/media/source" and ws["playing_source"] and ws["proxy_complete"]
+    assert ws["stream_copy_ok"] is False and abs(ws["proxy_available_seconds"] - 3.0) < 0.1
+    r = c.get("/media/source", headers={"Range": "bytes=0-99"})
+    assert r.status_code == 206 and len(r.content) == 100
+    # a proxy, once built, takes over from the source
+    job = c.post("/api/jobs/proxy", json={"height": 180}).json()
+    assert _wait(c, job["id"])["status"] == "done"
+    ws = c.get("/api/state").json()["workspace"]
+    assert ws["proxy_url"] == "/media/proxy/index.m3u8" and not ws["playing_source"]
+
+
+def test_the_broadcast_mxf_still_needs_a_proxy(client):
+    ws = client.get("/api/state").json()["workspace"]
+    assert ws["proxy_url"] is None and not ws["playing_source"] and ws["stream_copy_ok"] is True
+    assert client.get("/media/source").status_code == 404
+
+
+def _cands(*items):
+    return {"version": 1, "source": "shell_eval", "recording": "g.mxf", "items": [
+        {"in_frame": a, "out_frame": b, "what": w, "label": l, "alternatives": alt, "whose": "ours", "strength": s, "samples": 3}
+        for a, b, w, l, alt, s in items]}
+
+
+def test_candidates_import_review_and_undo(client):
+    data = _cands((30, 90, "shell", "Next Week Promo", ["Match-Up", "Promo"], 9.7),
+                  (120, 180, "booth", "Booth", [], 12.0),
+                  (200, 260, "scenic", "Scenic Comp", [], 6.1))
+    seq0 = client.get("/api/state").json()["history"]["seq"]
+    # a bad file is refused before anything is remembered
+    assert client.post("/api/candidates/import", json={"data": {"version": 1, "items": [{"in_frame": 5}]}}).status_code == 400
+    assert client.post("/api/candidates/import", json={"data": _cands((10, 10 ** 9, "shell", "X", [], 1))}).status_code == 400
+    assert client.get("/api/state").json()["history"]["seq"] == seq0
+    r = client.post("/api/candidates/import", json={"data": data}).json()
+    assert r["added"] == 3 and [c["status"] for c in r["project"]["candidates"]] == ["pending"] * 3
+    promo, booth, scenic = r["project"]["candidates"]
+    # accept the promo as its look-alike Match-Up; accept the booth shot; dismiss the scenic
+    r = client.post(f"/api/candidates/{promo['id']}/accept", json={"label": "Match-Up"}).json()
+    assert r["clip"]["shell"] == "Match-Up" and r["clip"]["in_frame"] == 30 and r["clip"]["out_frame"] == 90
+    assert r["clip"]["whose"] == "ours"
+    r = client.post(f"/api/candidates/{booth['id']}/accept", json={}).json()
+    assert r["clip"]["shell"] == "Booth" and r["clip"]["camera"] == "Booth"
+    assert client.post(f"/api/candidates/{booth['id']}/accept", json={}).status_code == 409
+    client.patch(f"/api/candidates/{scenic['id']}", json={"status": "dismissed"})
+    st = client.get("/api/state").json()["project"]
+    assert {c["id"]: c["status"] for c in st["candidates"]} == {promo["id"]: "accepted", booth["id"]: "accepted", scenic["id"]: "dismissed"}
+    assert len(st["clips"]) == 2
+    # importing the same file again keeps every decision and adds nothing
+    r = client.post("/api/candidates/import", json={"data": data}).json()
+    assert r["added"] == 0 and r["already_decided"] == 3 and len(r["project"]["candidates"]) == 3
+    # undo takes back the import, the dismissal, then the booth acceptance with its clip
+    for label in ("import candidates", "dismiss candidate", "accept candidate"):
+        assert client.post("/api/undo").json()["label"] == label
+    st = client.get("/api/state").json()["project"]
+    assert len(st["clips"]) == 1 and next(c for c in st["candidates"] if c["id"] == booth["id"])["status"] == "pending"
+    # deleting the clip made from a candidate puts the candidate back to pending
+    clip_id = st["clips"][0]["id"]
+    st = client.delete(f"/api/clips/{clip_id}").json()["project"]
+    assert next(c for c in st["candidates"] if c["id"] == promo["id"])["status"] == "pending"
