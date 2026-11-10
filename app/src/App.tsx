@@ -5,13 +5,15 @@ import { Tc } from "./components/Tc";
 import { Player, type PlayerHandle } from "./components/Player";
 import { Shuttle } from "./components/Shuttle";
 import { ClipEditor, ClipList, type QuickExport } from "./components/ClipList";
-import { AudioDialog, JobsPanel, MarkersPanel, RenderPanel, learnRate } from "./components/Panels";
+import { AudioDialog, BroadcastPanel, JobsPanel, MarkersPanel, RenderPanel, learnRate } from "./components/Panels";
+import { PHASE_LABEL, boundary, clipPhase, phaseOf, phaseSpans } from "./phases";
+import type { BoundaryKey, SpaceEstimate } from "./api";
 import { FileDialog } from "./components/FileDialog";
 import { SettingsDialog } from "./components/Settings";
 import { ACTIONS, type ActionId, actionFor, bindingsFrom, comboOf, overridesOf, showKey, tip } from "./shortcuts";
 import { getUi, loadUiPrefs, setUi } from "./uiPrefs";
 
-type Dialog = null | { kind: "open" } | { kind: "outdir" } | { kind: "help" } | { kind: "still" } | { kind: "settings"; tab?: "shortcuts" | "lists" } | { kind: "audio"; tracks: { track: number; url: string; channels: number }[] | null };
+type Dialog = null | { kind: "open" } | { kind: "outdir" } | { kind: "outroot" } | { kind: "help" } | { kind: "still" } | { kind: "settings"; tab?: "general" | "shortcuts" | "lists" } | { kind: "audio"; tracks: { track: number; url: string; channels: number }[] | null };
 
 // One undo order for everything: the in/out marks live here in the window, project edits on the server.
 // A "server" entry stands for one remembered project edit; the server's own stack holds the snapshot.
@@ -59,6 +61,8 @@ export default function App() {
   const marks = useRef<{ in: number | null; out: number | null }>({ in: null, out: null });
   const [, setUndoTick] = useState(0);                 // re-render the undo buttons when the window's stack changes
   const csvInput = useRef<HTMLInputElement>(null);
+  const jsonInput = useRef<HTMLInputElement>(null);
+  const [space, setSpace] = useState<SpaceEstimate | null>(null);
   const stillName = useRef<HTMLInputElement>(null);
 
   const say = useCallback((text: string, error = false) => { setToast({ text, error }); setTimeout(() => setToast(null), error ? 6000 : 2500); }, []);
@@ -91,6 +95,17 @@ export default function App() {
     marks.current = { in: null, out: null }; setIn(null); setOut(null);
     undoStack.current = []; redoStack.current = []; seqSeen.current = null; setUndoTick((t) => t + 1);
   }, []);
+
+  // What a full render would take, against the destination's free space. Rechecked when the clip list,
+  // settings or output folder change, and every so often since the drive's free space moves on its own.
+  const spaceKey = JSON.stringify([state?.project?.clips.map((c) => [c.in_frame, c.out_frame, c.formats, c.head_seconds, c.tail_seconds, c.extra_stills.length]), state?.project?.settings, state?.workspace?.clips_dir]);
+  useEffect(() => {
+    if (!state?.project?.clips.length) { setSpace(null); return; }
+    let live = true;
+    const check = () => api.estimate({}).then((r) => live && setSpace(r)).catch(() => live && setSpace(null));
+    const t = setTimeout(check, 400), every = setInterval(check, 60000);
+    return () => { live = false; clearTimeout(t); clearInterval(every); };
+  }, [spaceKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Poll: fast while anything runs, slow otherwise.
   useEffect(() => { refresh(); }, [refresh]);
@@ -142,7 +157,23 @@ export default function App() {
     const pool = clipIds ? project!.clips.filter((c) => clipIds.includes(c.id)) : project!.clips;
     const n = once && !once.stills ? 0 : pool.filter((c) => c.still_frame === null).length;
     if (n && !confirm(`${n} clip${n > 1 ? "s have" : " has"} no still chosen; the middle frame will be used. Render anyway?`)) return;
-    run(api.startRender({ clip_ids: clipIds, from_proxy: !!offline, ...(once ?? {}) }));
+    const req = { clip_ids: clipIds, from_proxy: !!offline, ...(once ?? {}) };
+    api.startRender(req).then(refresh).catch((e: Error) => {
+      // the destination looks too small: say so, and let the user go ahead anyway (the figure is an estimate)
+      if (e.message.startsWith("not enough space") && confirm(`${e.message[0].toUpperCase()}${e.message.slice(1)}.\n\nRender anyway?`)) run(api.startRender({ ...req, force: true }));
+      else if (!e.message.startsWith("not enough space")) say(e.message, true);
+    });
+  };
+  const setBoundary = (key: BoundaryKey, f: number | null) => run(api.setPhases({ [key]: f }), () => say(f === null ? "Boundary cleared" : `Set at ${tcOf(f)}`));
+  const importPhases = async () => {
+    const n = native();
+    if (n?.pick_json) { const text = await n.pick_json(); if (text) loadPhases(text); }
+    else jsonInput.current?.click();
+  };
+  const loadPhases = (text: string) => {
+    let data: unknown;
+    try { data = JSON.parse(text); } catch { say("That file is not JSON", true); return; }
+    run(api.importPhases(data), (r) => say(`${r.changed.length} boundar${r.changed.length === 1 ? "y" : "ies"} updated${r.kept.length ? `; kept your own for ${r.kept.join(", ").replace(/_/g, " ")}` : ""}`));
   };
   const addClip = useCallback(() => {
     if (!project) return;
@@ -323,6 +354,7 @@ export default function App() {
                     <span className="num">{frame.toLocaleString()}<span className="unit">fr</span></span>
                     <span className={`caps mode ${pstatus.mode === "not in proxy yet" || pstatus.rate !== 0 ? "accent" : "dim"}`}>{pstatus.rate !== 0 ? `${pstatus.rate}×` : pstatus.mode}</span>
                   </div>
+                  <span className="phasechip readoutphase" title="Part of the broadcast at the playhead (set the boundaries in the Broadcast panel)">{(() => { const ph = phaseOf(project, frame); return ph ? PHASE_LABEL[ph] : "—"; })()}</span>
                 </div>
                 <div className="tgroup">
                   <button className="btn small" onClick={() => nextMarker(-1)} title={tip("Previous marker", bindings, "prev_marker")}>◀ Prev</button>
@@ -362,7 +394,8 @@ export default function App() {
               {strip ? (
                 <Filmstrip index={strip} nbFrames={info!.nb_frames} fps={fps} frame={frame} markers={project.markers} clips={project.clips} selectedId={selected}
                   inPoint={inPoint} outPoint={outPoint} pendingStill={pendingStill} onSeek={seek} follow={follow} reveal={reveal} thumbW={thumbW} onThumbW={setThumbW} tcOf={tcOf}
-                  proxySeconds={ws!.proxy_url ? ws!.proxy_available_seconds : 0} />
+                  proxySeconds={ws!.proxy_url ? ws!.proxy_available_seconds : 0}
+                  spans={phaseSpans(project)} anthem={(() => { const a = boundary(project, "anthem_in"), b = boundary(project, "anthem_out"); return a !== null && b !== null && b > a ? [a, b] as [number, number] : null; })()} />
               ) : (
                 <div className="strip-empty hatch">
                   <span>No filmstrip yet.</span><button className="btn primary" onClick={() => run(api.startFilmstrip({}))}>Build filmstrip</button><span className="dim">About five minutes for a full game.</span>
@@ -398,21 +431,26 @@ export default function App() {
         {project ? (
           <>
             <div>
-              <JobsPanel state={state} onFilmstrip={(force) => run(api.startFilmstrip({ force }))} onProxy={(height) => run(api.startProxy({ height }))} onCancel={(id) => run(api.cancelJob(id))}
+              <Fold id="scan"><JobsPanel state={state} onFilmstrip={(force) => run(api.startFilmstrip({ force }))} onProxy={(height) => run(api.startProxy({ height }))} onCancel={(id) => run(api.cancelJob(id))}
                 onAudioTracks={(t) => run(api.settings({ audio_tracks: t }), () => say("Stereo pair saved. Rebuild the proxy to hear it there."))}
                 onSurround={(sv) => run(api.settings(sv))}
-                onAudioPreview={() => { setDialog({ kind: "audio", tracks: null }); api.audioPreview(frame).then((r) => setDialog({ kind: "audio", tracks: r.tracks })).catch((e) => { setDialog(null); say(e.message, true); }); }} />
-              <MarkersPanel markerKey={showKey(bindings.add_marker || undefined)} markers={project.markers} info={info!} onSeek={jumpTo} onImport={importCsv} onDelete={(f) => run(api.deleteMarker(f))}
+                onAudioPreview={() => { setDialog({ kind: "audio", tracks: null }); api.audioPreview(frame).then((r) => setDialog({ kind: "audio", tracks: r.tracks })).catch((e) => { setDialog(null); say(e.message, true); }); }} /></Fold>
+              <Fold id="broadcast"><BroadcastPanel project={project} frame={frame} tcOf={tcOf} onSet={setBoundary} onSeek={jumpTo} onImport={importPhases} /></Fold>
+              <Fold id="markers"><MarkersPanel markerKey={showKey(bindings.add_marker || undefined)} markers={project.markers} info={info!} onSeek={jumpTo} onImport={importCsv} onDelete={(f) => run(api.deleteMarker(f))}
                 onDeleteUntimed={(i) => run(api.deleteUntimed(i))}
-                offset={project.settings.log_offset_seconds} onOffset={(s) => run(api.settings({ log_offset_seconds: s }), () => say("Log clock saved. Import the log again to apply it."))} />
-              <div className="panel-head" style={{ padding: "10px 12px 0" }}><h2>Clips <span className="dim" style={{ letterSpacing: 0 }}>{project.clips.length}</span></h2>
-                {selectedClip && <button className="btn small" onClick={() => jumpTo(selectedClip.in_frame)}>Go to in</button>}</div>
+                offset={project.settings.log_offset_seconds} onOffset={(s) => run(api.settings({ log_offset_seconds: s }), () => say("Log clock saved. Import the log again to apply it."))} /></Fold>
             </div>
+            {/* the clip list keeps its heading with it, so it never scrolls away with the panels above */}
+            <div className="clipsarea">
+            <div className="panel-head" style={{ padding: "10px 12px 0" }}><h2>Clips <span className="dim" style={{ letterSpacing: 0 }}>{project.clips.length}</span></h2>
+              {selectedClip && <button className="btn small" onClick={() => jumpTo(selectedClip.in_frame)}>Go to in</button>}</div>
             <ClipList clips={project.clips} info={info!} selected={selected} onSelect={setSelected} onPatch={patchClip} onDelete={deleteClip} onSeek={jumpTo} onExport={(id, o) => startRender([id], o)} renderRows={renderRows}
-              keys={{ in: showKey(bindings.mark_in || undefined), out: showKey(bindings.mark_out || undefined), add: showKey(bindings.add_clip || undefined) }} />
+              keys={{ in: showKey(bindings.mark_in || undefined), out: showKey(bindings.mark_out || undefined), add: showKey(bindings.add_clip || undefined) }}
+              phaseOfClip={(c) => clipPhase(project, c)} />
+            </div>
             <div>
-              {selectedClip && <ClipEditor clip={selectedClip} info={info!} frame={frame} vocab={state.vocab} onPatch={(p) => patchClip(selectedClip.id, p)} onSeek={jumpTo} onSay={say} />}
-              <RenderPanel job={renderJob} clipCount={project.clips.length} missingStills={project.clips.filter((c) => c.still_frame === null).length} selectedId={selected} outDir={ws!.clips_dir}
+              {selectedClip && <ClipEditor clip={selectedClip} info={info!} frame={frame} vocab={state.vocab} autoPhase={phaseOf(project, selectedClip.in_frame)} onPatch={(p) => patchClip(selectedClip.id, p)} onSeek={jumpTo} onSay={say} />}
+              <RenderPanel space={space} job={renderJob} clipCount={project.clips.length} missingStills={project.clips.filter((c) => c.still_frame === null).length} selectedId={selected} outDir={ws!.clips_dir}
                 onRender={() => startRender()}
                 onRenderSelected={() => selected && startRender([selected])}
                 onCancel={() => renderJob && run(api.cancelJob(renderJob.id))}
@@ -424,6 +462,7 @@ export default function App() {
       </div>
 
       <input ref={csvInput} type="file" accept=".csv,.tsv,.txt" style={{ display: "none" }} onChange={onCsvFile} />
+      <input ref={jsonInput} type="file" accept=".json" style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; if (f) f.text().then(loadPhases); e.target.value = ""; }} />
       {dialog?.kind === "open" && <FileDialog title="Open a recording" onClose={() => setDialog(null)} onPick={(p) => { setDialog(null); openPath(p); }} />}
       {dialog?.kind === "outdir" && <FileDialog title="Output folder for clips" dirsOnly start={ws?.clips_dir} onClose={() => setDialog(null)} onPick={(p) => { setDialog(null); run(api.settings({ output_dir: p })); }} />}
       {dialog?.kind === "still" && project && (
@@ -439,7 +478,11 @@ export default function App() {
         </div>
       )}
       {dialog?.kind === "audio" && <AudioDialog tracks={dialog.tracks} tcLabel={tcOf(frame)} onClose={() => setDialog(null)} />}
+      {dialog?.kind === "outroot" && <FileDialog title="Output folder for every game" dirsOnly start={state.prefs.output_root || state.work_root} onClose={() => setDialog({ kind: "settings", tab: "general" })} onPick={(p) => { setDialog({ kind: "settings", tab: "general" }); run(api.prefs({ output_root: p }), () => say("Output folder saved")); }} />}
       {dialog?.kind === "settings" && <SettingsDialog initialTab={dialog.tab} bindings={bindings} vocab={state.vocab} onClose={() => setDialog(null)}
+        outputRoot={state.prefs.output_root} workRoot={state.work_root} space={space} gameFolder={ws?.clips_dir ?? ""}
+        onPickOutputRoot={async () => { const n = native(); if (n) { const p = await n.pick_folder(state.prefs.output_root || state.work_root); if (p) run(api.prefs({ output_root: p }), () => say("Output folder saved")); } else setDialog({ kind: "outroot" }); }}
+        onClearOutputRoot={() => run(api.prefs({ output_root: "" }), () => say("Clips go in each game's work folder again"))}
         onSaveBindings={(b) => run(api.prefs({ shortcuts: overridesOf(b) }), () => say("Keyboard shortcuts saved"))}
         onSaveVocab={(v) => run(api.vocab(v), () => say("Lists saved"))} />}
       {dialog?.kind === "help" && (
@@ -484,6 +527,16 @@ function framesToTcLocal(frames: number, n: number, drop: boolean): string {
   if (drop) { const d = 2 * Math.floor(n / 30); const per10 = n * 600 - d * 9; const perMin = n * 60 - d; const tens = Math.floor(f / per10); const rem = f % per10; f += rem > d ? d * 9 * tens + d * Math.floor((rem - d) / perMin) : d * 9 * tens; }
   const p = (x: number) => String(x).padStart(2, "0");
   return `${p(Math.floor(f / (n * 3600)))}:${p(Math.floor(f / (n * 60)) % 60)}:${p(Math.floor(f / n) % 60)}${drop ? ";" : ":"}${p(f % n)}`;
+}
+
+/** A side panel that folds to its heading: click the heading to close or open it. Remembered across launches. */
+function Fold({ id, children }: { id: string; children: React.ReactNode }) {
+  const [closed, setClosed] = useState(() => getUi(`fold.${id}`, false));
+  const toggle = (e: React.MouseEvent) => {
+    if (!(e.target as HTMLElement).closest(".panel-head h2")) return;
+    setClosed((c) => { setUi(`fold.${id}`, !c); return !c; });
+  };
+  return <div className={`fold ${closed ? "closed" : ""}`} onClick={toggle}>{children}</div>;
 }
 
 function GameFields({ game, onChange }: { game: { date: string; week: string; away: string; home: string }; onChange: (g: { date: string; week: string; away: string; home: string }) => void }) {

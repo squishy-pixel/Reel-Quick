@@ -1,5 +1,6 @@
 import { useState } from "react";
-import type { AppState, Job, Marker, MediaInfo, Vocab } from "../api";
+import type { AppState, BoundaryKey, Job, Marker, MediaInfo, Project, SpaceEstimate, Vocab } from "../api";
+import { BOUNDARY_ROWS, PHASE_LABEL, boundary, gb, phaseOf } from "../phases";
 import { clockText } from "../timecode";
 import { getUi, setUi } from "../uiPrefs";
 
@@ -123,8 +124,41 @@ export function MarkersPanel({ markers, info, onSeek, onImport, onDelete, onDele
   );
 }
 
-export function RenderPanel({ job, clipCount, missingStills, selectedId, outDir, onRender, onRenderSelected, onCancel, onPickOut, onReveal }: {
-  job?: Job; clipCount: number; missingStills: number; selectedId: string | null; outDir: string;
+/** The broadcast's boundaries: pre / game / half / game / post, and the anthem window. */
+export function BroadcastPanel({ project, frame, tcOf, onSet, onSeek, onImport }: {
+  project: Project; frame: number; tcOf: (f: number) => string;
+  onSet: (key: BoundaryKey, frame: number | null) => void; onSeek: (f: number) => void; onImport: () => void;
+}) {
+  const here = phaseOf(project, frame);
+  return (
+    <div className="panel">
+      <div className="panel-head">
+        <h2>Broadcast {here && <span className="phasechip" title="Phase at the playhead">{PHASE_LABEL[here]}</span>}</h2>
+        <button className="btn small" onClick={onImport} title="Load the boundaries the detector found (<game>.phases.json). Ones you set by hand are kept.">Import…</button>
+      </div>
+      <div className="bounds">
+        {BOUNDARY_ROWS.map((r) => {
+          const f = boundary(project, r.key);
+          const src = project.phases?.[r.key]?.source;
+          return (
+            <div key={r.key} className="bound" title={r.title}>
+              <span className="lbl">{r.label}</span>
+              {f !== null
+                ? <button className="btn small tc" onClick={() => onSeek(f)} title="Go there">{tcOf(f)}</button>
+                : <span className="tc dim">--:--:--:--</span>}
+              <span className="src">{f !== null && src && src !== "user" ? <span title={`Found by ${src}; set it by hand to override`}>auto</span> : ""}</span>
+              <button className="btn small" onClick={() => onSet(r.key, frame)} title={`Set ${r.label.toLowerCase()} at the playhead (${tcOf(frame)})`}>Set</button>
+              <button className="btn small icon" disabled={f === null} onClick={() => onSet(r.key, null)} title="Clear">✕</button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+export function RenderPanel({ job, clipCount, missingStills, selectedId, outDir, space, onRender, onRenderSelected, onCancel, onPickOut, onReveal }: {
+  job?: Job; clipCount: number; missingStills: number; selectedId: string | null; outDir: string; space: SpaceEstimate | null;
   onRender: () => void; onRenderSelected: () => void; onCancel: () => void; onPickOut: () => void; onReveal: () => void;
 }) {
   const running = job?.status === "running";
@@ -165,6 +199,11 @@ export function RenderPanel({ job, clipCount, missingStills, selectedId, outDir,
         <button className="btn small" onClick={onReveal} title={outDir}>Open folder</button>
         <button className="btn small" onClick={onPickOut} title="Choose a different output folder">Folder…</button>
       </div>
+      {space && clipCount > 0 && !running && (
+        <div className={`space ${space.fits ? "" : "short"}`} title={`Estimate for rendering every clip in its formats, with handles and stills. ${space.dest}: ${gb(space.free)} free.`}>
+          {space.fits ? "" : "Not enough space: "}needs ≈ {gb(space.bytes)} · {gb(space.free)} free
+        </div>
+      )}
       <div className="dim" style={{ fontSize: 10, marginTop: 6, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", direction: "rtl", textAlign: "left" }} title={outDir}>{outDir}</div>
     </div>
   );

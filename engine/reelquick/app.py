@@ -77,5 +77,12 @@ def run_app(port: int | None = None, browser: bool = False, work_root: Path | No
                 return None
             return Path(r[0]).read_text(encoding="utf-8-sig", errors="replace")
 
-    window.expose(Api().pick_file, Api().pick_folder, Api().pick_csv)
+        def pick_json(self):
+            r = window.create_file_dialog(webview.OPEN_DIALOG, allow_multiple=False,
+                                          file_types=("Phases (*.json)", "All files (*.*)"))
+            if not r:
+                return None
+            return Path(r[0]).read_text(encoding="utf-8-sig", errors="replace")
+
+    window.expose(Api().pick_file, Api().pick_folder, Api().pick_csv, Api().pick_json)
     webview.start()

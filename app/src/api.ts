@@ -8,6 +8,7 @@ export interface Marker { frame: number | null; tc: string; kind: string; shell:
 export interface Clip {
   id: string; in_frame: number; out_frame: number; name: string; shell: string; desc: string; camera: string; engine: string; formats: string[];
   head_seconds: number; tail_seconds: number; still_frame: number | null; extra_stills: number[]; rendered: Record<string, any>; notes: string;
+  phase: "" | "pre" | "game" | "half" | "post"; whose: "ours" | "nbc" | "other";
 }
 export interface Still { id: string; frame: number; name: string; rendered: string | null }
 export interface Game { date: string; week: string; away: string; home: string }
@@ -15,8 +16,12 @@ export interface Settings {
   audio_tracks: number[]; surround_tracks: number[]; surround_in_mov: boolean; surround_in_mp4: boolean; prores_profile: string; mp4_sdr: boolean; mp4_height: number | null; mp4_quality: string; copy_container: string;
   still_format: string; still_hdr: boolean; default_formats: string[]; name_pattern: string;
   default_head_seconds: number; default_tail_seconds: number; log_offset_seconds: number; output_dir: string;
+  file_by_type: boolean; other_folder: string;
 }
-export interface Project { version: number; source: string; info: MediaInfo; game: Game; settings: Settings; markers: Marker[]; clips: Clip[]; stills: Still[] }
+export type BoundaryKey = "anthem_in" | "anthem_out" | "kickoff" | "half_start" | "second_half_kickoff" | "game_end";
+export type Phases = Partial<Record<BoundaryKey, { frame: number | null; source: string }>>;
+export interface Project { version: number; source: string; info: MediaInfo; game: Game; settings: Settings; markers: Marker[]; clips: Clip[]; stills: Still[]; phases: Phases }
+export interface SpaceEstimate { bytes: number; free: number | null; dest: string; out_dir: string; fits: boolean }
 export interface Job {
   id: string; kind: string; label: string; status: "queued" | "running" | "done" | "failed" | "cancelled";
   progress: number; detail: any; error: string | null; started: number | null; finished: number | null; elapsed: number; eta: number | null; result: any;
@@ -24,7 +29,8 @@ export interface Job {
 export interface Workspace { source: string; source_online: boolean; root: string; project_path: string; has_filmstrip: boolean; has_proxy: boolean; proxy_url: string | null; proxy_complete: boolean; proxy_building: boolean; proxy_available_seconds: number; proxy_start_offset: number; clips_dir: string }
 export interface Recent { root: string; project_path: string; source: string; source_online: boolean; game: Game; clips: number; has_proxy: boolean; has_filmstrip: boolean; modified: number }
 export type Vocab = { shells: string[]; cameras: string[]; engines: string[]; segments: string[] };
-export type Prefs = { shortcuts: Record<string, string>; ui: Record<string, unknown> };
+export type RenderRequest = { clip_ids?: string[]; overwrite?: boolean; from_proxy?: boolean; formats?: string[]; mp4_quality?: string; stills?: boolean; force?: boolean };
+export type Prefs = { shortcuts: Record<string, string>; ui: Record<string, unknown>; output_root: string };
 export interface AppState {
   version: string; workspace: Workspace | null; project: Project | null; jobs: Job[]; work_root: string; vocab: Vocab;
   prefs: Prefs;
@@ -66,8 +72,10 @@ export const api = {
   jobs: () => call<Job[]>("GET", "/api/jobs"),
   startFilmstrip: (b: { interval?: number; width?: number; force?: boolean }) => call<Job>("POST", "/api/jobs/filmstrip", b),
   startProxy: (b: { height?: number; bitrate?: string }) => call<Job>("POST", "/api/jobs/proxy", b),
-  startRender: (b: { clip_ids?: string[]; overwrite?: boolean; from_proxy?: boolean; formats?: string[]; mp4_quality?: string; stills?: boolean }) =>
-    call<Job>("POST", "/api/jobs/render", b),
+  startRender: (b: RenderRequest) => call<Job>("POST", "/api/jobs/render", b),
+  estimate: (b: RenderRequest) => call<SpaceEstimate>("POST", "/api/render/estimate", b),
+  setPhases: (values: Partial<Record<BoundaryKey, number | null>>) => call<AppState>("PUT", "/api/phases", { values }),
+  importPhases: (data: unknown) => call<AppState & { changed: string[]; kept: string[] }>("POST", "/api/phases/import", { data }),
   recent: () => call<Recent[]>("GET", "/api/recent"),
   fonts: () => call<{ file: string; url: string; family: string; weight: number; italic: boolean; playoff: boolean }[]>("GET", "/api/fonts"),
   cancelJob: (id: string) => call<{ ok: boolean }>("POST", `/api/jobs/${id}/cancel`),
@@ -76,5 +84,5 @@ export const api = {
 };
 
 // Native dialogs when running inside the pywebview window.
-declare global { interface Window { pywebview?: { api: { pick_file(): Promise<string | null>; pick_folder(start?: string): Promise<string | null>; pick_csv(): Promise<string | null> } } } }
+declare global { interface Window { pywebview?: { api: { pick_file(): Promise<string | null>; pick_folder(start?: string): Promise<string | null>; pick_csv(): Promise<string | null>; pick_json?(): Promise<string | null> } } } }
 export const native = () => window.pywebview?.api ?? null;

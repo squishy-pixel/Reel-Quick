@@ -202,13 +202,21 @@ or set `REELQUICK_FFMPEG_DIR` to the folder that holds them. On a Mac use
 filter, and the engine looks in the keg-only `ffmpeg-full` folder on its own
 (see `docs/MAC-SETUP.md`).
 
-Output layout for one clip rendered as ProRes plus MP4:
+Output layout in the app: one folder per game (under the output folder set in
+Settings → General, or `clips\` in the game's work folder), a folder per content
+type inside it, and `Other Content` for anything that is not ours. The phase
+(Pre / Game / Half / Post) is in the name.
 
 ```
-clips\261022_WK08_NEvCHI_01_MatchUp_HotAirBalloons.mov
-clips\261022_WK08_NEvCHI_01_MatchUp_HotAirBalloons.mp4
-clips\stills\261022_WK08_NEvCHI_01_MatchUp_HotAirBalloons.png
+261022_WK08-NEvCHI\Match-Up\261022_WK08-NEvCHI_07_Pre_Match-Up_HotAirBalloons.mov
+261022_WK08-NEvCHI\Match-Up\261022_WK08-NEvCHI_07_Pre_Match-Up_HotAirBalloons.mp4
+261022_WK08-NEvCHI\Match-Up\stills\261022_WK08-NEvCHI_07_Pre_Match-Up_HotAirBalloons.png
+261022_WK08-NEvCHI\Booth\261022_WK08-NEvCHI_08_Game_Booth.mov
+261022_WK08-NEvCHI\Other Content\261022_WK08-NEvCHI_09_Half_Standings_network-standings.mp4
 ```
+
+Before a render the app estimates the space it needs and checks the
+destination's free space.
 
 Run the tests with `uv run pytest` inside `engine/`. They generate a short
 synthetic MXF in the real feed's format, so no media is needed.

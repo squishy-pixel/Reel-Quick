@@ -49,7 +49,7 @@ h2 { font-size: 11px; color: var(--grey); letter-spacing: 0.16em; }
 .topbar .file b { color: var(--off-white); font-weight: 500; }
 .strip-area { background: var(--cold); border-top: 1px solid var(--line); }
 .main { display: grid; grid-template-rows: minmax(0, 1fr) auto auto; grid-template-columns: minmax(0, 1fr); min-height: 0; min-width: 0; }
-.side { border-left: 1px solid var(--line); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; grid-template-columns: minmax(0, 1fr); min-height: 0; min-width: 0; overflow: hidden; background: var(--cold); }
+.side { border-left: 1px solid var(--line); display: grid; grid-template-rows: auto minmax(150px, 1fr) auto; grid-template-columns: minmax(0, 1fr); min-height: 0; min-width: 0; overflow: hidden; background: var(--cold); }
 
 /* Buttons and inputs */
 .btn { background: transparent; border: 1px solid var(--line); color: var(--off-white); padding: 5px 11px; border-radius: var(--radius); cursor: pointer; text-transform: uppercase; letter-spacing: 0.08em; font-size: 11px; font-weight: 500; white-space: nowrap; }
@@ -172,9 +172,10 @@ input.text:focus, select.text:focus { outline: none; border-color: var(--yellow)
 .cliprow.selected { border-left-color: var(--yellow); background: rgba(254,180,4,0.06); }
 .cliprow .still { width: 72px; height: 40px; background: #111; object-fit: cover; display: block; }
 .cliprow .line1 { display: flex; align-items: baseline; gap: 8px; }
+.clipsarea { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
 .cliprow .seq { color: var(--yellow); font-weight: 700; font-family: var(--mono); }
 .cliprow .name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
-.cliprow .line2 { display: flex; gap: 10px; align-items: center; color: var(--grey); font-size: 11px; margin-top: 2px; }
+.cliprow .line2 { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; color: var(--grey); font-size: 11px; margin-top: 2px; }
 .cliprow .chips { display: flex; gap: 4px; margin-top: 5px; flex-wrap: wrap; }
 .cliprow .ok { color: var(--green); }
 .cliprow .stillbadge { font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; padding: 0 5px; border: 1px solid var(--off-white); color: var(--off-white); }
@@ -238,3 +239,35 @@ input.text:focus, select.text:focus { outline: none; border-color: var(--yellow)
 .keyrow .rowtools { display: flex; gap: 6px; color: var(--grey); font-style: normal; }
 .keyrow .rowtools i { cursor: pointer; font-style: normal; }
 .keyrow .rowtools i:hover { color: var(--off-white); }
+
+/* Broadcast phases */
+.bounds { display: grid; gap: 2px; }
+.bound { display: grid; grid-template-columns: 112px 110px 34px auto 28px; gap: 6px; align-items: center; font-size: 11px; }
+.bound .lbl { color: var(--grey); }
+.bound .tc { font-size: 11px; }
+.bound .src { color: var(--dim); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; }
+.phasechip { display: inline-block; font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; padding: 0 5px; border: 1px solid rgba(96,140,230,0.8); color: #A9C2F2; border-radius: 2px; margin-left: 6px; font-weight: 600; vertical-align: 1px; }
+.phasechip.set { background: rgba(96,140,230,0.25); }
+.transport .readout .phasechip.readoutphase { font-size: 10px; padding: 2px 8px; width: 48px; text-align: center; margin-left: 0; }
+.otherbadge { font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; padding: 0 5px; border: 1px dashed var(--grey); color: var(--grey); border-radius: 2px; }
+.legend .sw.studio { height: 4px; background: rgba(96,140,230,0.75); }
+.legend .sw.gameband { height: 4px; background: rgba(244,245,245,0.30); }
+.legend .sw.anthem { height: 4px; background: rgba(230,80,70,0.95); }
+.renderpanel .space { font-size: 11px; color: var(--grey); margin-top: 8px; }
+.renderpanel .space.short { color: var(--red); }
+/* Settings: General */
+.general { padding: 6px 14px 14px; overflow-y: auto; }
+.general h3 { font-size: 10px; color: var(--yellow); letter-spacing: 0.16em; margin: 12px 0 4px; }
+.general p { font-size: 12px; margin: 6px 0; line-height: 1.45; }
+.general .pathrow { display: flex; gap: 8px; align-items: center; }
+.general .path { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12px; padding: 4px 8px; border: 1px solid var(--line); background: var(--off-black); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Side panels fold to their heading; the caret is the control. */
+.fold .panel-head h2 { cursor: pointer; user-select: none; }
+.fold .panel-head h2::after { content: "▾"; color: var(--dim); margin-left: 8px; font-size: 10px; }
+.fold.closed .panel-head h2::after { content: "▸"; }
+.fold.closed .panel > :not(.panel-head) { display: none; }
+.fold.closed .panel-head { margin-bottom: 0; }
+/* The clip list always keeps room: the panels above and the editor below scroll instead of crowding it. */
+.side > div:first-child { max-height: 38vh; overflow-y: auto; }
+.side > div:last-child { max-height: 42vh; overflow-y: auto; }

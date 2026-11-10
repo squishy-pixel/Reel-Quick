@@ -6,12 +6,14 @@ export const THUMB_MIN = 80, THUMB_MAX = 320;
 
 type Snap = { frame: number; label: string };
 
-export function Filmstrip({ index, nbFrames, fps, frame, markers, clips, selectedId, inPoint, outPoint, pendingStill, onSeek, follow, reveal, thumbW, onThumbW, tcOf, proxySeconds }: {
+export function Filmstrip({ index, nbFrames, fps, frame, markers, clips, selectedId, inPoint, outPoint, pendingStill, onSeek, follow, reveal, thumbW, onThumbW, tcOf, proxySeconds, spans, anthem }: {
   index: FilmstripIndex; nbFrames: number; fps: number; frame: number; markers: Marker[]; clips: Clip[]; selectedId: string | null;
   inPoint: number | null; outPoint: number | null; pendingStill: number | null; onSeek: (frame: number) => void; follow: boolean;
   reveal: { frame: number; n: number } | null;    // an explicit jump (clip, marker, go-to): scroll there whatever "follow" says
   thumbW: number; onThumbW: (w: number) => void; tcOf: (f: number) => string;
   proxySeconds: number;                           // how far the proxy reaches; beyond it the video cannot show frames yet
+  spans: { from: number; to: number; phase: "pre" | "game" | "half" | "post" }[];   // the broadcast's phases, in order
+  anthem: [number, number] | null;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [view, setView] = useState({ left: 0, width: 1200 });
@@ -102,6 +104,9 @@ export function Filmstrip({ index, nbFrames, fps, frame, markers, clips, selecte
       g.restore();
       g.fillStyle = "rgba(254,180,4,0.6)"; g.fillRect(x(proxyEnd) - 0.5, 0, 1, h);
     }
+    // the broadcast's phases as a band along the top: studio shows blue, the game light, the anthem red
+    for (const sp of spans) { g.fillStyle = sp.phase === "game" ? "rgba(244,245,245,0.30)" : "rgba(96,140,230,0.75)"; g.fillRect(x(sp.from), 0, Math.max(1, x(sp.to) - x(sp.from)), 4); }
+    if (anthem) { g.fillStyle = "rgba(230,80,70,0.95)"; g.fillRect(x(anthem[0]), 0, Math.max(2, x(anthem[1]) - x(anthem[0])), 4); }
     g.fillStyle = "rgba(255,255,255,0.07)";
     g.fillRect(x((view.left / thumbW) * perThumb), 0, Math.max(2, x((view.width / thumbW) * perThumb)), h);
     for (const cl of clips) { g.fillStyle = cl.id === selectedId ? "#F4F5F5" : "#FEB404"; g.fillRect(x(cl.in_frame), h - 7, Math.max(2, x(cl.out_frame) - x(cl.in_frame)), 6); }
@@ -111,7 +116,7 @@ export function Filmstrip({ index, nbFrames, fps, frame, markers, clips, selecte
     for (const f of stills) { const cy = h / 2; g.fillStyle = "#F4F5F5"; g.beginPath(); g.moveTo(x(f), cy - 6); g.lineTo(x(f) + 6, cy); g.lineTo(x(f), cy + 6); g.lineTo(x(f) - 6, cy); g.closePath(); g.fill(); g.strokeStyle = "#000"; g.lineWidth = 1; g.stroke(); }
     if (inPoint !== null) { g.fillStyle = "rgba(254,180,4,0.35)"; g.fillRect(x(inPoint), 0, Math.max(2, x(outPoint ?? frame) - x(inPoint)), h); }
     g.fillStyle = "#F4F5F5"; g.fillRect(x(frame) - 1.5, 0, 3, h);
-  }, [frame, timed, stills, clips, selected, selectedId, nbFrames, view, perThumb, thumbW, inPoint, outPoint, proxyEnd]);
+  }, [frame, timed, stills, clips, selected, selectedId, nbFrames, view, perThumb, thumbW, inPoint, outPoint, proxyEnd, spans, anthem]);
 
   // A click within a few pixels of a marker, still or clip edge lands on it exactly.
   const frameAt = (e: MouseEvent | React.MouseEvent, el: HTMLElement): { frame: number; label?: string } => {
@@ -175,6 +180,9 @@ export function Filmstrip({ index, nbFrames, fps, frame, markers, clips, selecte
         <span><i className="sw sel" />selected clip</span>
         <span><i className="sw io" />in–out</span>
         {proxyEnd < nbFrames && <span><i className="sw np" />proxy not there yet</span>}
+        {spans.length > 0 && <span><i className="sw studio" />studio</span>}
+        {spans.length > 0 && <span><i className="sw gameband" />game</span>}
+        {anthem && <span><i className="sw anthem" />anthem</span>}
         <span className="dim" style={{ marginLeft: "auto" }}>click near a mark to land on it</span>
       </div>
     </div>

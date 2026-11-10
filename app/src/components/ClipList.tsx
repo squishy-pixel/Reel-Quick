@@ -1,6 +1,9 @@
 import { useState } from "react";
 import type { Clip, MediaInfo, Vocab } from "../api";
 import { getUi, setUi } from "../uiPrefs";
+import { PHASE_LABEL, type Phase } from "../phases";
+
+const WHOSE_LABEL: Record<Clip["whose"], string> = { ours: "Ours", nbc: "NBC design", other: "Other contributor" };
 import { durationText, framesToTc } from "../timecode";
 import { startFrames } from "./Player";
 
@@ -54,12 +57,13 @@ function QuickExportBar({ onExport, onClose }: { onExport: (o: QuickExport) => v
   );
 }
 
-export function ClipList({ clips, info, selected, onSelect, onPatch, onDelete, onSeek, onExport, renderRows, keys }: {
+export function ClipList({ clips, info, selected, onSelect, onPatch, onDelete, onSeek, onExport, renderRows, keys, phaseOfClip }: {
   clips: Clip[]; info: MediaInfo; selected: string | null; onSelect: (id: string) => void;
   onPatch: (id: string, patch: Partial<Clip>) => void; onDelete: (id: string) => void; onSeek: (frame: number) => void;
   onExport: (id: string, o: QuickExport) => void;
   renderRows: Record<string, { status: string; progress: number }>;
   keys: { in: string; out: string; add: string };    // the user's current bindings, for the empty-list hint
+  phaseOfClip: (c: Clip) => Phase;
 }) {
   const [exporting, setExporting] = useState<string | null>(null);
   const rate = { num: info.rate_num, den: info.rate_den };
@@ -89,6 +93,8 @@ export function ClipList({ clips, info, selected, onSelect, onPatch, onDelete, o
                 <span className="dim">→</span>
                 <span className="tc">{tc(c.out_frame)}</span>
                 <span className="dim num">{durationText(c.out_frame - c.in_frame, rate)}</span>
+                {phaseOfClip(c) && <span className={`phasechip ${c.phase ? "set" : ""}`} title={c.phase ? "Phase set by hand" : "Phase from the broadcast boundaries"}>{PHASE_LABEL[phaseOfClip(c) as Exclude<Phase, "">]}</span>}
+                {c.whose !== "ours" && <span className="otherbadge" title={`${WHOSE_LABEL[c.whose]}: filed in Other Content`}>Other</span>}
                 {c.engine && <span className="muted">{c.engine}</span>}
                 {c.camera && <span className="accent">{c.camera}</span>}
                 <span className={`stillbadge ${c.still_frame === null ? "none" : ""}`} title={c.still_frame === null ? "No still chosen; the middle frame will be used" : `Still at ${tc(c.still_frame)}${c.extra_stills?.length ? ` plus ${c.extra_stills.length} more` : ""}`}>
@@ -118,8 +124,8 @@ export function ClipList({ clips, info, selected, onSelect, onPatch, onDelete, o
   );
 }
 
-export function ClipEditor({ clip, info, frame, vocab, onPatch, onSeek, onSay }: {
-  clip: Clip; info: MediaInfo; frame: number; vocab: Vocab; onPatch: (patch: Partial<Clip>) => void; onSeek: (f: number) => void;
+export function ClipEditor({ clip, info, frame, vocab, autoPhase, onPatch, onSeek, onSay }: {
+  clip: Clip; info: MediaInfo; frame: number; vocab: Vocab; autoPhase: Phase; onPatch: (patch: Partial<Clip>) => void; onSeek: (f: number) => void;
   onSay: (text: string, error?: boolean) => void;
 }) {
   const rate = { num: info.rate_num, den: info.rate_den };
@@ -146,6 +152,19 @@ export function ClipEditor({ clip, info, frame, vocab, onPatch, onSeek, onSay }:
         <div className="field"><label>Camera</label>
           <input className="text" list="cameras" defaultValue={clip.camera} key={`c${clip.id}-${clip.camera}`} onBlur={(e) => e.target.value !== clip.camera && onPatch({ camera: e.target.value })} placeholder="Camera" />
           <datalist id="cameras">{vocab.cameras.map((c) => <option key={c} value={c} />)}</datalist></div>
+      </div>
+      <div className="row">
+        <div className="field"><label>Phase</label>
+          <select className="text" value={clip.phase} onChange={(e) => onPatch({ phase: e.target.value as Clip["phase"] })}
+            title="Which part of the broadcast: pre, half and post are the studio shows; Auto follows the boundaries in the Broadcast panel">
+            <option value="">Auto{autoPhase ? ` (${PHASE_LABEL[autoPhase as Exclude<Phase, "">]})` : " (set kickoff first)"}</option>
+            {(Object.keys(PHASE_LABEL) as Exclude<Phase, "">[]).map((k) => <option key={k} value={k}>{PHASE_LABEL[k]}</option>)}
+          </select></div>
+        <div className="field"><label>Whose</label>
+          <select className="text" value={clip.whose} onChange={(e) => onPatch({ whose: e.target.value as Clip["whose"] })}
+            title="Anything not ours is named the same way but filed in Other Content, apart from our deliverables">
+            {(Object.keys(WHOSE_LABEL) as Clip["whose"][]).map((k) => <option key={k} value={k}>{WHOSE_LABEL[k]}</option>)}
+          </select></div>
       </div>
       <div className="field"><label>Description</label><input className="text" defaultValue={clip.desc} key={`d${clip.id}-${clip.desc}`} onBlur={(e) => e.target.value !== clip.desc && onPatch({ desc: e.target.value })} placeholder="What it is" /></div>
       <div className="field"><label>File name</label><input className="text num" defaultValue={clip.name} key={`n${clip.id}-${clip.name}`} onBlur={(e) => e.target.value !== clip.name && onPatch({ name: e.target.value })} /></div>

@@ -1,25 +1,46 @@
 import { useEffect, useState } from "react";
-import type { Vocab } from "../api";
+import type { SpaceEstimate, Vocab } from "../api";
+import { gb } from "../phases";
 import { ACTIONS, type ActionId, type Bindings, comboOf, isMac, showKey } from "../shortcuts";
 import { ListsPane } from "./Panels";
 
-type Tab = "shortcuts" | "lists";
+type Tab = "general" | "shortcuts" | "lists";
 
 /** Application settings: keyboard shortcuts and the lists, with room for more pages (locations, defaults). */
-export function SettingsDialog({ initialTab, bindings, vocab, onSaveBindings, onSaveVocab, onClose }: {
+export function SettingsDialog({ initialTab, bindings, vocab, onSaveBindings, onSaveVocab, onClose, outputRoot, workRoot, gameFolder, space, onPickOutputRoot, onClearOutputRoot }: {
   initialTab?: Tab; bindings: Bindings; vocab: Vocab;
   onSaveBindings: (b: Bindings) => void; onSaveVocab: (v: Vocab) => void; onClose: () => void;
+  outputRoot: string; workRoot: string; gameFolder: string; space: SpaceEstimate | null;
+  onPickOutputRoot: () => void; onClearOutputRoot: () => void;
 }) {
-  const [tab, setTab] = useState<Tab>(initialTab ?? "shortcuts");
+  const [tab, setTab] = useState<Tab>(initialTab ?? "general");
   return (
     <div className="modal-bg" onClick={onClose}>
       <div className="modal settings" style={{ width: 860, gridTemplateRows: "auto auto minmax(0, 1fr)" }} onClick={(e) => e.stopPropagation()}>
         <header><h2>Settings</h2><button className="btn small" style={{ marginLeft: "auto" }} onClick={onClose}>Close</button></header>
         <div className="tabs">
+          <button className={`tab ${tab === "general" ? "on" : ""}`} onClick={() => setTab("general")}>General</button>
           <button className={`tab ${tab === "shortcuts" ? "on" : ""}`} onClick={() => setTab("shortcuts")}>Keyboard</button>
           <button className={`tab ${tab === "lists" ? "on" : ""}`} onClick={() => setTab("lists")}>Lists</button>
         </div>
         <div className="settings-body">
+          {tab === "general" && (
+            <div className="general">
+              <section>
+                <h3>Output folder</h3>
+                <p className="dim">Where every game's clips go. Each game gets a folder of its own inside it, with a folder per content
+                  type and Other Content beside them. Pick a drive with room: a game's ProRes can run to tens of GB.</p>
+                <div className="pathrow">
+                  <span className={`path ${outputRoot ? "" : "dim"}`} title={outputRoot || `${workRoot} (each game's work folder)`}>{outputRoot || "Each game's work folder (default)"}</span>
+                  <button className="btn small" onClick={onPickOutputRoot}>Choose…</button>
+                  {outputRoot && <button className="btn small" onClick={onClearOutputRoot}>Use the default</button>}
+                </div>
+                {gameFolder && <p className="dim">This game: <span className="num">{gameFolder}</span></p>}
+                {space && <p className={space.fits ? "dim" : "accent"}>Rendering every clip of this game needs about {gb(space.bytes)}; {space.dest} has {gb(space.free)} free.</p>}
+                <p className="dim">A game can still have a folder of its own: Folder… in its Export panel.</p>
+              </section>
+            </div>
+          )}
           {tab === "shortcuts" && <ShortcutsPane bindings={bindings} onSave={onSaveBindings} />}
           {tab === "lists" && <ListsPane vocab={vocab} onSave={onSaveVocab} />}
         </div>
